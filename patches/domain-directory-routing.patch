@@ -1,0 +1,157 @@
+diff --git a/crates/common/src/auth/authentication.rs b/crates/common/src/auth/authentication.rs
+index d24568c..c0a96cd 100644
+--- a/crates/common/src/auth/authentication.rs
++++ b/crates/common/src/auth/authentication.rs
+@@ -3,3 +3,3 @@
+  *
+- * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
++ * SPDX-License-Identifier: AGPL-3.0-only
+  */
+@@ -11,2 +11,3 @@ use crate::{
+         credential::{ApiKey, AppPassword},
++        domain_directory::{normalize_domain, select_configured_or_default},
+         oauth::GrantType,
+@@ -518,4 +519,10 @@ impl Server {
+     ) -> trc::Result<Option<&Arc<Directory>>> {
++        let Some(domain_name) = normalize_domain(domain_name) else {
++            return Ok(self.get_default_directory());
++        };
+-
++
+-        Ok(self.get_default_directory())
++        Ok(match self.domain(domain_name.as_ref()).await? {
++            Some(domain) => self.get_directory_for_cached_domain(&domain),
++            None => self.get_default_directory(),
++        })
+     }
+@@ -523,4 +530,7 @@ impl Server {
+     pub fn get_directory_for_cached_domain(&self, domain: &DomainCache) -> Option<&Arc<Directory>> {
+-
+-        self.get_default_directory()
++        select_configured_or_default(
++            domain.id_directory,
++            self.get_default_directory(),
++            |directory_id| self.get_directory(&directory_id),
++        )
+     }
+diff --git a/crates/common/src/auth/mod.rs b/crates/common/src/auth/mod.rs
+index c4e9870..007688d 100644
+--- a/crates/common/src/auth/mod.rs
++++ b/crates/common/src/auth/mod.rs
+@@ -3,3 +3,3 @@
+  *
+- * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
++ * SPDX-License-Identifier: AGPL-3.0-only
+  */
+@@ -30,2 +30,3 @@ pub mod authentication;
+ pub mod credential;
++mod domain_directory;
+ pub mod oauth;
+diff --git a/crates/common/src/auth/domain_directory.rs b/crates/common/src/auth/domain_directory.rs
+new file mode 100644
+index 0000000..4f07451
+--- /dev/null
++++ b/crates/common/src/auth/domain_directory.rs
+@@ -0,0 +1,102 @@
++// SPDX-License-Identifier: AGPL-3.0-only
++
++#![forbid(unsafe_code)]
++
++use std::borrow::Cow;
++
++pub(crate) fn normalize_domain(domain: &str) -> Option<Cow<'_, str>> {
++    let domain = domain.trim_matches(|character: char| character.is_ascii_whitespace());
++    let domain = domain.strip_suffix('.').unwrap_or(domain);
++
++    if domain.is_empty() {
++        None
++    } else if domain
++        .bytes()
++        .any(|character| character.is_ascii_uppercase())
++    {
++        Some(Cow::Owned(domain.to_ascii_lowercase()))
++    } else {
++        Some(Cow::Borrowed(domain))
++    }
++}
++
++pub(crate) fn select_configured_or_default<D, F>(
++    configured_id: Option<u32>,
++    default: Option<D>,
++    lookup: F,
++) -> Option<D>
++where
++    F: FnOnce(u32) -> Option<D>,
++{
++    configured_id.and_then(lookup).or(default)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{normalize_domain, select_configured_or_default};
++    use std::cell::Cell;
++
++    #[test]
++    fn normalizes_domain_lookup_key() {
++        assert_eq!(
++            normalize_domain("\t ExAmPlE.CoM. \r\n").as_deref(),
++            Some("example.com")
++        );
++    }
++
++    #[test]
++    fn removes_exactly_one_dns_root_dot() {
++        assert_eq!(
++            normalize_domain("example.com..").as_deref(),
++            Some("example.com.")
++        );
++    }
++
++    #[test]
++    fn empty_normalized_domain_skips_lookup() {
++        assert_eq!(normalize_domain(" \t.\r\n"), None);
++    }
++
++    #[test]
++    fn configured_directory_overrides_default() {
++        assert_eq!(
++            select_configured_or_default(Some(7), Some("default"), |id| {
++                assert_eq!(id, 7);
++                Some("configured")
++            }),
++            Some("configured")
++        );
++    }
++
++    #[test]
++    fn absent_or_unusable_configuration_falls_back_to_default() {
++        assert_eq!(
++            select_configured_or_default(None, Some("default"), |_| Some("unexpected")),
++            Some("default")
++        );
++        assert_eq!(
++            select_configured_or_default(Some(8), Some("default"), |_| None),
++            Some("default")
++        );
++    }
++
++    #[test]
++    fn absent_configuration_does_not_call_lookup() {
++        let called = Cell::new(false);
++        let selected = select_configured_or_default(None, Some(9), |_| {
++            called.set(true);
++            Some(10)
++        });
++
++        assert_eq!(selected, Some(9));
++        assert!(!called.get());
++    }
++
++    #[test]
++    fn no_usable_directory_returns_none_without_default() {
++        assert_eq!(
++            select_configured_or_default::<u8, _>(Some(8), None, |_| None),
++            None
++        );
++    }
++}

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "domain-directory-selector"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Generic domain-to-directory selection"
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
