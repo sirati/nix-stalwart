@@ -54,6 +54,8 @@
         {
           default = pkgs.stalwart-domain-directories;
           inherit (pkgs) stalwart-domain-directories;
+          vandelay = pkgs.callPackage ./vandelay.nix { };
+          stalwart-cli = pkgs.callPackage ./stalwart-cli.nix { };
         }
       );
 
