@@ -38,8 +38,8 @@ argument.
 | `defaultDomain` | Domain used as Stalwart's default mail domain. |
 | `domains` | Complete list of managed primary and alias domains. |
 | `webDomains` | Hostnames routed by the edge reverse proxy to Stalwart. |
-| `bootstrapCredentialFile` | Runtime file containing `username:password` for bootstrap and recovery API calls. |
-| `administratorCredentialFile` | Runtime file containing `admin@<defaultDomain>:<password>` for the permanent administrator account. |
+| `bootstrapCredentialFile` or `bootstrapPasswordFile` | Runtime `username:password` credential or bare password for bootstrap and recovery API calls. Bare passwords use the temporary `admin` username. Set exactly one. |
+| `administratorCredentialFile` or `administratorPasswordFile` | Runtime `admin@<defaultDomain>:<password>` credential or bare password for the permanent administrator. Set exactly one. |
 | `database.host` | PostgreSQL host visible from the prison. |
 | `database.passwordFile` | Runtime file containing the PostgreSQL password. |
 | `dns.host` | Authoritative DNS server used for RFC 2136 updates. |
@@ -147,9 +147,10 @@ loopback recovery endpoint, and applies the bootstrap document. On every start
 it applies the domain, certificate, DNS, resolver, identity-directory, and
 account plan before starting the normal server. Account passwords are inserted
 at runtime with `jq`; they are absent from generated plan files. The permanent
-administrator password is reconciled from `administratorCredentialFile` on every
-start, including after a database restore. After successful reconciliation the
-runner removes Stalwart's one-time generated administrator credential file.
+administrator password is reconciled from its configured runtime file on every
+start, including after a database restore. The runner sets umask 077 before
+Stalwart writes runtime files. After successful reconciliation it removes
+Stalwart's one-time generated administrator credential file.
 
 The edge service exposes SMTP, POP3, IMAP, submission, and ManageSieve ports:
 25, 110, 143, 465, 587, 993, 995, and 4190. Every `webDomains` entry is proxied

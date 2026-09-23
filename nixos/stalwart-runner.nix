@@ -19,10 +19,19 @@ pkgs.writeShellApplication {
   ];
   text = ''
     set -euo pipefail
+    umask 077
     config=/var/lib/stalwart/config.json
-    credential="$(cat /secrets/bootstrap-credential)"
-    username="''${credential%%:*}"
-    password="''${credential#*:}"
+    ${if cfg.bootstrapPasswordFile != null then ''
+      password="$(cat /secrets/bootstrap-password)"
+      test -n "$password"
+      username="admin"
+      credential="admin:$password"
+    '' else ''
+      credential="$(cat /secrets/bootstrap-credential)"
+      username="''${credential%%:*}"
+      password="''${credential#*:}"
+      test -n "$username"; test -n "$password"; test "$credential" != "$password"
+    ''}
     recovery_url=http://127.0.0.1:${toString cfg.recoveryPort}
     server_pid=
 
@@ -74,7 +83,6 @@ pkgs.writeShellApplication {
 
     if ! test -s "$config"; then
       start_setup_server env
-      umask 077
       STALWART_URL="$recovery_url" STALWART_USER="$username" \
         STALWART_PASSWORD="$password" stalwart-cli update Bootstrap \
         --file /config/bootstrap.json > /var/lib/stalwart/initial-admin.txt
@@ -87,14 +95,20 @@ pkgs.writeShellApplication {
       cat /config/plan.ndjson
       ${accountOperations}
       jq --null-input --compact-output \
-        --rawfile credential /secrets/administrator-credential \
+        --rawfile credential ${lib.escapeShellArg (if cfg.administratorPasswordFile != null then "/secrets/administrator-password" else "/secrets/administrator-credential")} \
+        --arg credential_kind ${lib.escapeShellArg (if cfg.administratorPasswordFile != null then "password" else "composite")} \
         --arg expected_user ${lib.escapeShellArg "admin@${cfg.defaultDomain}"} \
         --arg domain_ref ${lib.escapeShellArg "#domain-${lib.replaceStrings [ "." ] [ "-" ] cfg.defaultDomain}"} \
         '
-          ($credential | sub("\\r?\\n$"; "") |
-            capture("^(?<username>[^:\\r\\n]+):(?<password>[^\\r\\n]+)$")) as $admin |
-          if $admin.username != $expected_user then
-            error("administrator credential username does not match the configured default domain")
+          ($credential | sub("\\r?\\n$"; "")) as $raw |
+          (if $credential_kind == "password" then
+            {"username": $expected_user, "password": $raw}
+          else
+            ($raw | capture("^(?<username>[^:\\r\\n]+):(?<password>[^\\r\\n]+)$"))
+          end) as $admin |
+          if $admin.username != $expected_user or $admin.password == "" or
+             ($admin.password | test("[\\r\\n]")) then
+            error("invalid administrator credential for the configured default domain")
           else
             {
               "@type": "upsert",

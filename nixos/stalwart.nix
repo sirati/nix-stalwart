@@ -136,20 +136,40 @@ let
         hostReaders = [ "postgres" ];
       }
       {
+        host = cfg.dns.keyFile;
+        path = "/secrets/dns-update-key";
+        readOnly = true;
+        file = true;
+      }
+    ]
+    ++ lib.optionals (cfg.bootstrapCredentialFile != null) [
+      {
         host = cfg.bootstrapCredentialFile;
         path = "/secrets/bootstrap-credential";
         readOnly = true;
         file = true;
       }
+    ]
+    ++ lib.optionals (cfg.bootstrapPasswordFile != null) [
+      {
+        host = cfg.bootstrapPasswordFile;
+        path = "/secrets/bootstrap-password";
+        readOnly = true;
+        file = true;
+      }
+    ]
+    ++ lib.optionals (cfg.administratorCredentialFile != null) [
       {
         host = cfg.administratorCredentialFile;
         path = "/secrets/administrator-credential";
         readOnly = true;
         file = true;
       }
+    ]
+    ++ lib.optionals (cfg.administratorPasswordFile != null) [
       {
-        host = cfg.dns.keyFile;
-        path = "/secrets/dns-update-key";
+        host = cfg.administratorPasswordFile;
+        path = "/secrets/administrator-password";
         readOnly = true;
         file = true;
       }
@@ -189,10 +209,25 @@ in
       type = lib.types.port;
       default = 18081;
     };
-    bootstrapCredentialFile = lib.mkOption { type = lib.types.str; };
+    bootstrapCredentialFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Runtime username:password file for the recovery API. Use this or bootstrapPasswordFile.";
+    };
+    bootstrapPasswordFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Runtime bare password file for the recovery API's admin account. Use this or bootstrapCredentialFile.";
+    };
     administratorCredentialFile = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.nullOr lib.types.str;
+      default = null;
       description = "Runtime file with the permanent administrator credential in username:password form.";
+    };
+    administratorPasswordFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Runtime bare password file for admin@defaultDomain. Use this or administratorCredentialFile.";
     };
     manualCertificateFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
