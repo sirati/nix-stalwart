@@ -53,6 +53,10 @@ let
     inherit lib pkgs cfg;
     stalwart = package;
   };
+  generatedConfigPaths = {
+    "bootstrap.json" = bootstrap;
+    "plan.ndjson" = plan;
+  };
   relay = prison.mkPrisonService {
     name = "stalwart-relay";
     exec = [ (lib.getExe runner) ];
@@ -67,7 +71,7 @@ let
       { host = cfg.bootstrapCredentialFile; path = "/secrets/bootstrap-credential"; readOnly = true; file = true; }
       { host = cfg.dns.keyFile; path = "/secrets/dns-update-key"; readOnly = true; file = true; }
     ];
-    config = { "bootstrap.json" = bootstrap; "plan.ndjson" = plan; };
+    config = cfg.generatedConfigPaths;
     openFiles = 65536;
   };
   prepare = pkgs.writeShellApplication {
@@ -128,6 +132,12 @@ in {
       address = lib.mkOption { type = lib.types.str; default = "192.0.2.3"; };
       port = lib.mkOption { type = lib.types.port; default = 53; };
       protocol = lib.mkOption { type = lib.types.enum [ "tcp" "tls" "udp" ]; default = "tcp"; };
+    };
+    generatedConfigPaths = lib.mkOption {
+      type = lib.types.attrsOf lib.types.package;
+      readOnly = true;
+      default = if cfg.enable then generatedConfigPaths else { };
+      description = "Generated store files mounted as Stalwart relay configuration, keyed by their paths under /config.";
     };
   };
 

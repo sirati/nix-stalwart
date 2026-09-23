@@ -100,6 +100,12 @@ let
     accountOperations = accountSupport.renderOperations;
   };
 
+  generatedConfigPaths = {
+    "bootstrap.json" = bootstrap;
+    "plan.ndjson" = plan;
+  }
+  // accountSupport.configFiles;
+
   service = prison.mkPrisonService {
     name = "stalwart";
     exec = [ (lib.getExe runner) ];
@@ -157,11 +163,7 @@ let
         file = true;
       }
     ];
-    config = {
-      "bootstrap.json" = bootstrap;
-      "plan.ndjson" = plan;
-    }
-    // accountSupport.configFiles;
+    config = cfg.generatedConfigPaths;
     capabilities.netBindService = true;
     openFiles = 65536;
   };
@@ -246,6 +248,12 @@ in
       passwordFile = lib.mkOption { type = lib.types.str; };
     };
     accounts = accountSupport.options;
+    generatedConfigPaths = lib.mkOption {
+      type = lib.types.attrsOf lib.types.package;
+      readOnly = true;
+      default = if cfg.enable then generatedConfigPaths else { };
+      description = "Generated store files mounted as Stalwart configuration, keyed by their paths under /config.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
