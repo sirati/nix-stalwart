@@ -43,6 +43,15 @@
           services.stalwart.package = lib.mkDefault pkgs.stalwart-domain-directories;
         };
 
+      nixosModules.relay =
+        { pkgs, ... }:
+        {
+          imports = [ ./nixos/stalwart-relay.nix ];
+          _module.args.stalwartRelayPackage = pkgs.callPackage ./package.nix {
+            features = [ "rocks" ];
+          };
+        };
+
       packages = forAllSystems (
         system:
         let

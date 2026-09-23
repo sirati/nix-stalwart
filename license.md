@@ -20,6 +20,7 @@ The following independently written material is licensed under the MIT License:
 - `vandelay.nix`
 - every file under `cleanroom-selector/`
 - every file under `lib/`
+- every file under `docs/`
 - every file under `nixos/`
 
 The clean-room selector was written from the public functional specification

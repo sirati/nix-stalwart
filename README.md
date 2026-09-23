@@ -55,6 +55,10 @@ runtime reference. `nix-dev-container` is deliberately not an input of this
 flake. It is only required by systems that import the prison module; the
 upstream module has no prison dependency.
 
+`nixosModules.relay` provides a small outbound-only instance compiled with
+RocksDB support and placed in its own prison. See
+[docs/relay-module.md](docs/relay-module.md).
+
 ## License
 
 See [`license.md`](license.md) for the license of each part of the repository.
