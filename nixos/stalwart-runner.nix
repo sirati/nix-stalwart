@@ -86,8 +86,37 @@ pkgs.writeShellApplication {
     {
       cat /config/plan.ndjson
       ${accountOperations}
+      jq --null-input --compact-output \
+        --rawfile credential /secrets/administrator-credential \
+        --arg expected_user ${lib.escapeShellArg "admin@${cfg.defaultDomain}"} \
+        --arg domain_ref ${lib.escapeShellArg "#domain-${lib.replaceStrings [ "." ] [ "-" ] cfg.defaultDomain}"} \
+        '
+          ($credential | sub("\\r?\\n$"; "") |
+            capture("^(?<username>[^:\\r\\n]+):(?<password>[^\\r\\n]+)$")) as $admin |
+          if $admin.username != $expected_user then
+            error("administrator credential username does not match the configured default domain")
+          else
+            {
+              "@type": "upsert",
+              "object": "Account",
+              "matchOn": ["name", "domainId"],
+              "value": {
+                "administrator": {
+                  "@type": "User",
+                  "name": "admin",
+                  "domainId": $domain_ref,
+                  "credentials": {
+                    "0": {"@type": "Password", "secret": $admin.password}
+                  },
+                  "roles": {"@type": "Admin"}
+                }
+              }
+            }
+          end
+        '
     } | STALWART_URL="$recovery_url" STALWART_USER="$username" \
-      STALWART_PASSWORD="$password" stalwart-cli apply --stdin
+      STALWART_PASSWORD="$password" stalwart-cli apply --stdin >/dev/null 2>&1
+    rm -f /var/lib/stalwart/initial-admin.txt
     stop_server
     server_pid=
     trap - EXIT INT TERM

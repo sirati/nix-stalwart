@@ -18,6 +18,10 @@ runtimeSecret.mkAssertions "services.sirati.stalwart" [
     path = cfg.bootstrapCredentialFile;
   }
   {
+    name = "administratorCredentialFile";
+    path = cfg.administratorCredentialFile;
+  }
+  {
     name = "dns.keyFile";
     path = cfg.dns.keyFile;
   }

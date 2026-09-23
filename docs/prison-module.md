@@ -39,6 +39,7 @@ argument.
 | `domains` | Complete list of managed primary and alias domains. |
 | `webDomains` | Hostnames routed by the edge reverse proxy to Stalwart. |
 | `bootstrapCredentialFile` | Runtime file containing `username:password` for bootstrap and recovery API calls. |
+| `administratorCredentialFile` | Runtime file containing `admin@<defaultDomain>:<password>` for the permanent administrator account. |
 | `database.host` | PostgreSQL host visible from the prison. |
 | `database.passwordFile` | Runtime file containing the PostgreSQL password. |
 | `dns.host` | Authoritative DNS server used for RFC 2136 updates. |
@@ -54,6 +55,7 @@ derivation.
 | --- | --- | --- |
 | `webPort` | port, `8081` | Internal HTTP listener used by the edge proxy. |
 | `recoveryPort` | port, `18081` | Loopback recovery API used during bootstrap and reconciliation. |
+| `generatedConfigPaths` | read-only attribute set | Store files mounted under `/config`, keyed by relative path. |
 | `manualCertificateFile` | null or path, `null` | Runtime PEM certificate used when ACME is disabled. |
 | `manualPrivateKeyFile` | null or path, `null` | Runtime PEM private key used when ACME is disabled. |
 | `acme.enable` | boolean, `true` | Reconciles DNS-01 certificates for all mail domains. |
@@ -136,7 +138,7 @@ store; password contents remain runtime-only.
 
 The service runs as UID 2400 with only `CAP_NET_BIND_SERVICE`. Its private state
 is persisted at the edge service state root under `stalwart`. Database, DNS,
-account, and manual TLS secrets are mounted read-only. The prison receives only
+administrator, account, and manual TLS secrets are mounted read-only. The prison receives only
 the Stalwart package, Web UI, CLI, CA bundle, public suffix data, and the small
 set of tools used by the reconciliation runner.
 
@@ -144,7 +146,10 @@ On an empty state directory the runner waits for PostgreSQL, starts Stalwart's
 loopback recovery endpoint, and applies the bootstrap document. On every start
 it applies the domain, certificate, DNS, resolver, identity-directory, and
 account plan before starting the normal server. Account passwords are inserted
-at runtime with `jq`; they are absent from generated plan files.
+at runtime with `jq`; they are absent from generated plan files. The permanent
+administrator password is reconciled from `administratorCredentialFile` on every
+start, including after a database restore. After successful reconciliation the
+runner removes Stalwart's one-time generated administrator credential file.
 
 The edge service exposes SMTP, POP3, IMAP, submission, and ManageSieve ports:
 25, 110, 143, 465, 587, 993, 995, and 4190. Every `webDomains` entry is proxied

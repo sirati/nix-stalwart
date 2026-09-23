@@ -142,6 +142,12 @@ let
         file = true;
       }
       {
+        host = cfg.administratorCredentialFile;
+        path = "/secrets/administrator-credential";
+        readOnly = true;
+        file = true;
+      }
+      {
         host = cfg.dns.keyFile;
         path = "/secrets/dns-update-key";
         readOnly = true;
@@ -184,6 +190,10 @@ in
       default = 18081;
     };
     bootstrapCredentialFile = lib.mkOption { type = lib.types.str; };
+    administratorCredentialFile = lib.mkOption {
+      type = lib.types.str;
+      description = "Runtime file with the permanent administrator credential in username:password form.";
+    };
     manualCertificateFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
