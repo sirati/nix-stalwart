@@ -108,7 +108,7 @@ let
 
   service = prison.mkPrisonService {
     name = "stalwart";
-    exec = [ (lib.getExe runner.package) runner.configuration ];
+    exec = [ (lib.getExe runner.package) (toString runner.configuration) ];
     uid = 2400;
     packages = [
       runner.configuration
