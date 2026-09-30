@@ -97,7 +97,7 @@ let
       cfg
       stalwart
       ;
-    accountOperations = accountSupport.renderOperations;
+    accounts = accountSupport.accounts;
   };
 
   generatedConfigPaths = {
@@ -108,9 +108,10 @@ let
 
   service = prison.mkPrisonService {
     name = "stalwart";
-    exec = [ (lib.getExe runner) ];
+    exec = [ (lib.getExe runner.package) runner.configuration ];
     uid = 2400;
     packages = [
+      runner.configuration
       stalwart
       pkgs.stalwart_0_16.webui
       pkgs.stalwart-cli
