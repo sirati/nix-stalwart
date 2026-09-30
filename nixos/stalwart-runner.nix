@@ -1,139 +1,26 @@
 # SPDX-License-Identifier: MIT
+{ lib, pkgs, cfg, stalwart, accounts }:
 {
-  lib,
-  pkgs,
-  cfg,
-  stalwart,
-  accountOperations,
-}:
-
-pkgs.writeShellApplication {
-  name = "stalwart-run";
-  runtimeInputs = [
-    pkgs.coreutils
-    pkgs.curl
-    pkgs.gnused
-    pkgs.jq
-    pkgs.postgresql_17
-    pkgs.stalwart-cli
-  ];
-  text = ''
-    set -euo pipefail
-    umask 077
-    config=/var/lib/stalwart/config.json
-    ${if cfg.bootstrapPasswordFile != null then ''
-      password="$(cat /secrets/bootstrap-password)"
-      test -n "$password"
-      username="admin"
-      credential="admin:$password"
-    '' else ''
-      credential="$(cat /secrets/bootstrap-credential)"
-      username="''${credential%%:*}"
-      password="''${credential#*:}"
-      test -n "$username"; test -n "$password"; test "$credential" != "$password"
-    ''}
-    recovery_url=http://127.0.0.1:${toString cfg.recoveryPort}
-    server_pid=
-
-    database_ready=
-    for attempt in $(seq 1 300); do
-      if pg_isready --quiet \
-        --host ${lib.escapeShellArg cfg.database.host} \
-        --port ${toString cfg.database.port} \
-        --dbname ${lib.escapeShellArg cfg.database.database} \
-        --username ${lib.escapeShellArg cfg.database.user}; then
-        database_ready=1
-        break
-      fi
-      if test "$((attempt % 10))" = 0; then
-        pg_isready \
-          --host ${lib.escapeShellArg cfg.database.host} \
-          --port ${toString cfg.database.port} \
-          --dbname ${lib.escapeShellArg cfg.database.database} \
-          --username ${lib.escapeShellArg cfg.database.user} || true
-      fi
-      sleep 1
-    done
-    if test -z "$database_ready"; then
-      echo "Stalwart database did not become ready" >&2
-      exit 1
-    fi
-
-    stop_server() {
-      if test -n "$server_pid" && kill -0 "$server_pid" 2>/dev/null; then
-        kill "$server_pid"
-        wait "$server_pid" || true
-      fi
-    }
-    trap stop_server EXIT INT TERM
-
-    start_setup_server() {
-      STALWART_RECOVERY_ADMIN="$credential" \
-      STALWART_RECOVERY_MODE_PORT=${toString cfg.recoveryPort} "$@" \
-        ${lib.getExe stalwart} --config="$config" &
-      server_pid=$!
-      for _ in $(seq 1 120); do
-        curl --fail --silent "$recovery_url/" >/dev/null && return
-        kill -0 "$server_pid"
-        sleep 0.25
-      done
-      echo "Stalwart setup listener did not become ready" >&2
-      exit 1
-    }
-
-    if ! test -s "$config"; then
-      start_setup_server env
-      STALWART_URL="$recovery_url" STALWART_USER="$username" \
-        STALWART_PASSWORD="$password" stalwart-cli update Bootstrap \
-        --file /config/bootstrap.json > /var/lib/stalwart/initial-admin.txt
-      stop_server
-      server_pid=
-    fi
-
-    start_setup_server env STALWART_RECOVERY_MODE=1
-    {
-      cat /config/plan.ndjson
-      ${accountOperations}
-      jq --null-input --compact-output \
-        --rawfile credential ${lib.escapeShellArg (if cfg.administratorPasswordFile != null then "/secrets/administrator-password" else "/secrets/administrator-credential")} \
-        --arg credential_kind ${lib.escapeShellArg (if cfg.administratorPasswordFile != null then "password" else "composite")} \
-        --arg expected_user ${lib.escapeShellArg "admin@${cfg.defaultDomain}"} \
-        --arg domain_ref ${lib.escapeShellArg "#domain-${lib.replaceStrings [ "." ] [ "-" ] cfg.defaultDomain}"} \
-        '
-          ($credential | sub("\\r?\\n$"; "")) as $raw |
-          (if $credential_kind == "password" then
-            {"username": $expected_user, "password": $raw}
-          else
-            ($raw | capture("^(?<username>[^:\\r\\n]+):(?<password>[^\\r\\n]+)$"))
-          end) as $admin |
-          if $admin.username != $expected_user or $admin.password == "" or
-             ($admin.password | test("[\\r\\n]")) then
-            error("invalid administrator credential for the configured default domain")
-          else
-            {
-              "@type": "upsert",
-              "object": "Account",
-              "matchOn": ["name", "domainId"],
-              "value": {
-                "administrator": {
-                  "@type": "User",
-                  "name": "admin",
-                  "domainId": $domain_ref,
-                  "credentials": {
-                    "0": {"@type": "Password", "secret": $admin.password}
-                  },
-                  "roles": {"@type": "Admin"}
-                }
-              }
-            }
-          end
-        '
-    } | STALWART_URL="$recovery_url" STALWART_USER="$username" \
-      STALWART_PASSWORD="$password" stalwart-cli apply --stdin >/dev/null 2>&1
-    rm -f /var/lib/stalwart/initial-admin.txt
-    stop_server
-    server_pid=
-    trap - EXIT INT TERM
-    exec ${lib.getExe stalwart} --config="$config"
-  '';
+  package = import ../runner-rs/package.nix { inherit pkgs; };
+  configuration = pkgs.writeText "stalwart-startup.json" (builtins.toJSON {
+    server = lib.getExe stalwart;
+    cli = lib.getExe pkgs.stalwart-cli;
+    curl = lib.getExe pkgs.curl;
+    pgIsReady = "${pkgs.postgresql_17}/bin/pg_isready";
+    databaseHost = cfg.database.host;
+    databasePort = cfg.database.port;
+    databaseName = cfg.database.database;
+    databaseUser = cfg.database.user;
+    recoveryPort = cfg.recoveryPort;
+    defaultDomain = cfg.defaultDomain;
+    bootstrapFile = if cfg.bootstrapPasswordFile != null then "/secrets/bootstrap-password" else "/secrets/bootstrap-credential";
+    bootstrapUsername = if cfg.bootstrapPasswordFile != null then "admin" else null;
+    administratorFile = if cfg.administratorPasswordFile != null then "/secrets/administrator-password" else "/secrets/administrator-credential";
+    administratorUsername = if cfg.administratorPasswordFile != null then "admin@${cfg.defaultDomain}" else null;
+    accounts = map (entry: {
+      inherit (entry) id;
+      planFile = "/config/accounts/${entry.id}.json";
+      passwordFile = if entry.account.passwordFile != null then entry.containerSecret else null;
+    }) accounts;
+  });
 }

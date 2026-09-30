@@ -50,6 +50,9 @@ settings. This variant runs Stalwart through the `nix-dev-container` prison
 abstraction, which must be available as a module argument in the consuming
 flake.
 
+The Rust startup runner reads credentials from runtime files, applies the
+declarative plan, and reports configuration failures with credentials redacted.
+
 See [docs/prison-module.md](docs/prison-module.md) for its complete option and
 runtime reference. `nix-dev-container` is deliberately not an input of this
 flake. It is only required by systems that import the prison module; the
