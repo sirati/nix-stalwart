@@ -176,3 +176,8 @@ directory ID and removing obsolete alias directories after all domain references
 have been updated. Other issuers and directory types remain outside that scope.
 Do not create additional OIDC directories for a managed issuer in the administrator
 interface. Accounts and messages are not reconciliation targets.
+
+Web TLS terminates at the edge proxy; Stalwart serves its internal HTTP upstream.
+Startup removes the former generated listener named `https`, preventing its
+unused port 8443 from conflicting with another service in the shared prison.
+SMTP and IMAP TLS listeners remain enabled.

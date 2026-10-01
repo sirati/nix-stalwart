@@ -191,7 +191,6 @@ let
       matchOn = [ "name" ];
       value = {
         listener-http = listener "http" "127.0.0.1:${toString cfg.webPort}" "http" false;
-        listener-https = listener "https" "127.0.0.1:8443" "http" true;
         listener-smtp = listener "smtp" "[::]:25" "smtp" false;
         listener-submission = listener "submission" "[::]:587" "smtp" false;
         listener-submissions = listener "submissions" "[::]:465" "smtp" true;
@@ -201,6 +200,15 @@ let
         listener-pop3s = listener "pop3s" "[::]:995" "pop3" true;
         listener-sieve = listener "sieve" "[::]:4190" "manageSieve" false;
       };
+    }
+    # Web TLS terminates at the edge proxy. Reconcile the former generated
+    # HTTPS listener by its managed name so upgrades remove its 8443 binding.
+    {
+      "@type" = "reconcile";
+      object = "NetworkListener";
+      matchOn = [ "name" ];
+      scope.name = "https";
+      value = { };
     }
   ];
 in

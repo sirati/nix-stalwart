@@ -55,7 +55,14 @@ pkgs.runCommand "stalwart-canonical-identity-plan" { nativeBuildInputs = [ pkgs.
     ($domains["domain-other-test"].directoryId == "#directory-kanidm-other-test") and
     ($domains["domain-local-test"] | has("directoryId") | not) and
     (map(.object) | index("Directory") < index("Domain")) and
-    (all(.[]; ."@type" != "destroy"))
+    (all(.[]; ."@type" != "destroy")) and
+    (map(select(.object == "NetworkListener" and ."@type" == "upsert"))[0].value as $listeners |
+      ($listeners | has("listener-https") | not) and
+      $listeners["listener-http"].bind == {"127.0.0.1:8081": true} and
+      $listeners["listener-imaps"].tlsImplicit == true and
+      $listeners["listener-submissions"].tlsImplicit == true) and
+    (map(select(.object == "NetworkListener" and ."@type" == "reconcile"))[0] |
+      .scope == {"name": "https"} and .value == {} and .matchOn == ["name"])
   ' ${plan}
   jq --slurp --exit-status 'map(select(.object == "Directory")) | length == 0' ${empty}
   touch $out
