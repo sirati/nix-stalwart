@@ -39,7 +39,7 @@ argument.
 | `domains` | Complete list of managed primary and alias domains. |
 | `webDomains` | Hostnames routed by the edge reverse proxy to Stalwart. |
 | `bootstrapCredentialFile` or `bootstrapPasswordFile` | Runtime `username:password` credential or bare password for bootstrap and recovery API calls. Bare passwords use the temporary `admin` username. Set exactly one. |
-| `administratorCredentialFile` or `administratorPasswordFile` | Runtime `admin@<defaultDomain>:<password>` credential or bare password for the permanent administrator. Set exactly one. |
+| `administratorCredentialFile` or `administratorPasswordFile` | Runtime `admin@<administratorDomain>:<password>` credential or bare password for the permanent administrator. Set exactly one. |
 | `database.host` | PostgreSQL host visible from the prison. |
 | `database.passwordFile` | Runtime file containing the PostgreSQL password. |
 | `dns.host` | Authoritative DNS server used for RFC 2136 updates. |
@@ -123,6 +123,8 @@ OIDC, set `administratorDomain` to a separate domain, such as `mail.example.org`
 The runner creates that local domain and `admin@administratorDomain`, using
 `administratorPasswordFile`. Point backup and verification clients at that
 administrator username too.
+Set `administratorHostReaders` to the host users running those clients so
+credential deployment preserves their read access.
 
 ## Accounts and aliases
 

@@ -163,6 +163,7 @@ let
       {
         host = cfg.administratorCredentialFile;
         path = "/secrets/administrator-credential";
+        hostReaders = cfg.administratorHostReaders;
         readOnly = true;
         file = true;
       }
@@ -171,6 +172,7 @@ let
       {
         host = cfg.administratorPasswordFile;
         path = "/secrets/administrator-password";
+        hostReaders = cfg.administratorHostReaders;
         readOnly = true;
         file = true;
       }
@@ -229,6 +231,11 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "Runtime file with the permanent administrator credential in username:password form.";
+    };
+    administratorHostReaders = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = "Host users allowed to read the administrator credential, for backup or verification clients.";
     };
     administratorPasswordFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
