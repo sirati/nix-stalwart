@@ -12,6 +12,7 @@
     databaseName = cfg.database.database;
     databaseUser = cfg.database.user;
     recoveryPort = cfg.recoveryPort;
+    identityIssuers = lib.unique (map (directory: directory.issuerUrl) (lib.attrValues cfg.identityDirectories));
     defaultDomain = cfg.defaultDomain;
     administratorDomain = cfg.administratorDomain;
     bootstrapFile = if cfg.bootstrapPasswordFile != null then "/secrets/bootstrap-password" else "/secrets/bootstrap-credential";
