@@ -28,6 +28,7 @@ struct Config {
     database_user: String,
     recovery_port: u16,
     default_domain: String,
+    administrator_domain: String,
     bootstrap_file: String,
     bootstrap_username: Option<String>,
     administrator_file: String,
@@ -205,11 +206,19 @@ fn plan(
     admin: &(String, String),
     secrets: &mut Vec<String>,
 ) -> Result<Vec<u8>, String> {
-    if admin.0 != format!("admin@{}", c.default_domain) {
-        return Err("administrator username differs from the configured default domain".into());
+    if admin.0 != format!("admin@{}", c.administrator_domain) {
+        return Err("administrator username differs from the configured administrator domain".into());
     }
     let mut result = fs::read_to_string("/config/plan.ndjson").map_err(|e| e.to_string())?;
     result.push('\n');
+    if c.administrator_domain != c.default_domain {
+        result.push_str(&json!({"@type":"upsert","object":"Domain","matchOn":["name"],"value":{
+            format!("domain-{}", c.administrator_domain.replace('.',"-")): {
+                "name":c.administrator_domain,"isEnabled":true,"directoryId":null
+            }
+        }}).to_string());
+        result.push('\n');
+    }
     for account in &c.accounts {
         let mut operation: Value =
             serde_json::from_slice(&fs::read(&account.plan_file).map_err(|e| e.to_string())?)
@@ -230,7 +239,7 @@ fn plan(
         result.push_str(&operation.to_string());
         result.push('\n');
     }
-    let operation = json!({"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"administrator":{"@type":"User","name":"admin","domainId":format!("#domain-{}", c.default_domain.replace('.',"-")),"credentials":{"0":{"@type":"Password","secret":admin.1}},"roles":{"@type":"Admin"}}}});
+    let operation = json!({"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"administrator":{"@type":"User","name":"admin","domainId":format!("#domain-{}", c.administrator_domain.replace('.',"-")),"credentials":{"0":{"@type":"Password","secret":admin.1}},"roles":{"@type":"Admin"}}}});
     result.push_str(&operation.to_string());
     result.push('\n');
     Ok(result.into_bytes())

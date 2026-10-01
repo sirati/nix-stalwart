@@ -11,6 +11,11 @@ let
 in
 [
   {
+    assertion = !(builtins.any (directory: directory.domain == cfg.administratorDomain)
+      (builtins.attrValues cfg.identityDirectories));
+    message = "The Stalwart administratorDomain must use a local directory, not identityDirectories.";
+  }
+  {
     assertion = exactlyOne cfg.bootstrapCredentialFile cfg.bootstrapPasswordFile;
     message = "Set exactly one of services.sirati.stalwart.bootstrapCredentialFile and bootstrapPasswordFile.";
   }

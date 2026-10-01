@@ -13,10 +13,11 @@
     databaseUser = cfg.database.user;
     recoveryPort = cfg.recoveryPort;
     defaultDomain = cfg.defaultDomain;
+    administratorDomain = cfg.administratorDomain;
     bootstrapFile = if cfg.bootstrapPasswordFile != null then "/secrets/bootstrap-password" else "/secrets/bootstrap-credential";
     bootstrapUsername = if cfg.bootstrapPasswordFile != null then "admin" else null;
     administratorFile = if cfg.administratorPasswordFile != null then "/secrets/administrator-password" else "/secrets/administrator-credential";
-    administratorUsername = if cfg.administratorPasswordFile != null then "admin@${cfg.defaultDomain}" else null;
+    administratorUsername = if cfg.administratorPasswordFile != null then "admin@${cfg.administratorDomain}" else null;
     accounts = map (entry: {
       inherit (entry) id;
       planFile = "/config/accounts/${entry.id}.json";
