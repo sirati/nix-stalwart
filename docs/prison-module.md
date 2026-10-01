@@ -118,6 +118,12 @@ directory and routes one mail domain to it.
 Each directory must own a distinct domain listed in `domains`, and every issuer
 must use HTTPS.
 
+The permanent administrator needs a local directory. If `defaultDomain` uses
+OIDC, set `administratorDomain` to a separate domain, such as `mail.example.org`.
+The runner creates that local domain and `admin@administratorDomain`, using
+`administratorPasswordFile`. Point backup and verification clients at that
+administrator username too.
+
 ## Accounts and aliases
 
 `accounts` is an attribute set of declaratively reconciled mailboxes.

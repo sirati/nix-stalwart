@@ -200,6 +200,11 @@ in
     enable = lib.mkEnableOption "Stalwart mail in the shared edge prison";
     hostname = lib.mkOption { type = lib.types.str; };
     defaultDomain = lib.mkOption { type = lib.types.str; };
+    administratorDomain = lib.mkOption {
+      type = lib.types.str;
+      default = cfg.defaultDomain;
+      description = "Local directory domain for the permanent administrator. Must not use an external identity directory.";
+    };
     domains = lib.mkOption { type = lib.types.listOf lib.types.str; };
     webDomains = lib.mkOption { type = lib.types.listOf lib.types.str; };
     webPort = lib.mkOption {
@@ -228,7 +233,7 @@ in
     administratorPasswordFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "Runtime bare password file for admin@defaultDomain. Use this or administratorCredentialFile.";
+      description = "Runtime bare password file for admin@administratorDomain. Use this or administratorCredentialFile.";
     };
     manualCertificateFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
