@@ -163,3 +163,16 @@ Stalwart's one-time generated administrator credential file.
 The edge service exposes SMTP, POP3, IMAP, submission, and ManageSieve ports:
 25, 110, 143, 465, 587, 993, 995, and 4190. Every `webDomains` entry is proxied
 to `127.0.0.1:webPort`.
+
+### Identity aliases and ownership
+
+Configure one `identityDirectories` entry per issuer. Its `domain` is canonical;
+`aliases` lists additional mail domains sharing that same directory. Issuers and
+domain ownership must be unique.
+
+The module owns OIDC directory objects for each configured issuer URL. On startup,
+the official CLI reconciles that exact issuer scope, preserving the canonical
+directory ID and removing obsolete alias directories after all domain references
+have been updated. Other issuers and directory types remain outside that scope.
+Do not create additional OIDC directories for a managed issuer in the administrator
+interface. Accounts and messages are not reconciliation targets.
