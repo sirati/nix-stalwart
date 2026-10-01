@@ -70,7 +70,7 @@ let
 
   identityDirectoryFor =
     name:
-    lib.findFirst (directory: directory.domain == name) null (lib.attrValues cfg.identityDirectories);
+    lib.findFirst (directory: directory.domain == name || builtins.elem name (directory.aliases or [ ])) null (lib.attrValues cfg.identityDirectories);
 
   domain =
     name:
@@ -86,7 +86,7 @@ let
       reportAddressUri = "mailto:postmaster";
     }
     // lib.optionalAttrs (identityDirectory != null) {
-      directoryId = "#${directoryId name}";
+      directoryId = "#${directoryId identityDirectory.domain}";
     };
 
   oidcDirectory =
@@ -165,18 +165,17 @@ let
       };
     }
   ]
-  ++ lib.optionals (cfg.identityDirectories != { }) [
-    {
-      "@type" = "upsert";
-      object = "Directory";
-      matchOn = [ "description" ];
-      value = lib.listToAttrs (
-        map (directory: lib.nameValuePair (directoryId directory.domain) (oidcDirectory directory)) (
-          lib.attrValues cfg.identityDirectories
-        )
-      );
-    }
-  ]
+  # Reconcile only this module's configured OIDC issuer scopes. The official
+  # CLI updates all domain references first and deletes unmatched old alias
+  # directories after the complete plan succeeds, preserving canonical IDs.
+  ++ map (directory: {
+    "@type" = "reconcile";
+    object = "Directory";
+    matchOn = [ "description" ];
+    scope = { "@type" = "Oidc"; issuerUrl = directory.issuerUrl; };
+    value.${directoryId directory.domain} = oidcDirectory directory;
+  }) (lib.attrValues cfg.identityDirectories)
+
   ++ [
     {
       "@type" = "upsert";
@@ -205,4 +204,5 @@ let
     }
   ];
 in
+assert builtins.all (check: check.assertion) (import ./stalwart-identity.nix { inherit lib cfg; }).assertions;
 pkgs.writeText "stalwart-plan.ndjson" (lib.concatMapStringsSep "\n" json operations + "\n")

@@ -89,6 +89,7 @@
           upstreamPackage = upstreamSystem.config.services.stalwart.package;
         in
         {
+          identity-plan = import ./tests/identity-plan.nix { inherit pkgs; };
           inherit (self.packages.${system}) stalwart-domain-directories;
           upstream-module =
             assert upstreamPackage.pname == "stalwart-domain-directories";

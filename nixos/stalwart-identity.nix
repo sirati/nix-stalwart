@@ -10,6 +10,11 @@ let
           type = lib.types.str;
           default = name;
         };
+        aliases = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          description = "Additional mail domains using this realm's directory.";
+        };
         issuerUrl = lib.mkOption { type = lib.types.str; };
         audience = lib.mkOption {
           type = lib.types.str;
@@ -31,22 +36,27 @@ let
     }
   );
   directories = lib.attrValues cfg.identityDirectories;
+  ownedDomains = lib.concatMap (directory: [ directory.domain ] ++ (directory.aliases or [ ])) directories;
 in
 {
   options = lib.mkOption {
     type = lib.types.attrsOf directoryType;
     default = { };
-    description = "OIDC directory selected independently for each mail domain.";
+    description = "One OIDC directory per issuer, shared by its canonical mail domain and aliases.";
   };
 
   assertions = [
     {
-      assertion = lib.allUnique (map (directory: directory.domain) directories);
-      message = "Each Stalwart identity directory must own a distinct mail domain.";
+      assertion = lib.allUnique (map (directory: directory.issuerUrl) directories);
+      message = "Each Stalwart OIDC issuer must have one identity directory; use aliases for additional domains.";
     }
     {
-      assertion = builtins.all (directory: builtins.elem directory.domain cfg.domains) directories;
-      message = "Every Stalwart identity directory domain must occur in stalwart.domains.";
+      assertion = lib.allUnique ownedDomains;
+      message = "Each Stalwart mail domain and alias must belong to exactly one identity directory.";
+    }
+    {
+      assertion = builtins.all (domain: builtins.elem domain cfg.domains) ownedDomains;
+      message = "Every Stalwart identity directory domain and alias must occur in stalwart.domains.";
     }
     {
       assertion = builtins.all (directory: lib.hasPrefix "https://" directory.issuerUrl) directories;
