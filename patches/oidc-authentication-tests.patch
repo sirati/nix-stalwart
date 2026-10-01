@@ -1,0 +1,122 @@
+diff --git a/crates/directory/src/backend/oidc/issuer_tests.rs b/crates/directory/src/backend/oidc/issuer_tests.rs
+new file mode 100644
+index 0000000..f13e0c7
+--- /dev/null
++++ b/crates/directory/src/backend/oidc/issuer_tests.rs
+@@ -0,0 +1,108 @@
++// SPDX-License-Identifier: AGPL-3.0-only
++// Public, disposable fixture keys, used only by these authentication tests.
++use super::*;
++use jsonwebtoken::{EncodingKey, Header, encode};
++use serde_json::json;
++use std::{io::{Read, Write}, net::TcpListener};
++
++const PRIVATE_KEY: &[u8] = br#"-----BEGIN PRIVATE KEY-----
++MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQD1FBuNiZykD8Gm
++anBrCO0PlRUWBB4TQIIl7PVogsltq6NsdDLKSF36HtIzCLnnuvqY5F06sdVJKwvl
++V43ca8GQa2XEaaI5K/ezr8OK1YWAfbzjBfpbZ7UoeQsISI7x2ls6q3yuxJI4ntyz
++qkS9WxqoMkvhjrpQfsfXSJLVFYyPutrgaVkNB+SJYQq5bwkEVy6l9aLzym8ySiem
++/lCp8L8rvpYJGITqP6WjFp55HpfHb3imGe9RFDF1ysFxwBSKDE5JI4oKpLcNM9Qw
++HZNmlaEGM5TLhxsMLPaKgDaCVdGChnhyOl2UwjPZNwdAzLLihIluY5l4uJ1/bvJa
++DvUAO3VzAgMBAAECggEAKpjfHR/BEScH8qPnfEMl6SJxcs0uaQw6Uts34H1zA1Pk
++6NHdjhk79GBtCp/GqEdwjSiMJ8qHFtubirZIGvrDvxVbr+LoZmWE/T9cjoIEXUv9
++i7wbQs3ox+saBsuNxO2+E5mA52OVQrAiDjxXDE6MeJWdaMwFCD6w/3NGyjCfqM9r
++bl0UbHM3jzwJYo8we15MqrPt4iHLiq3upWSB0YYAvT8OIU0twV4O7/44EouN7BNN
++WBPENTuqVSw8skPkS8CHMAxXHKQhvBEKs+dtFhRfdRHNAol/slpxihg19OXBT/tk
++fcECX41wQ23Q2eh8+CM9mCBpmfC0VQFO2qilL0DSGQKBgQD8XohgKhCqoGwGkvjS
++g8QH25psiWSN6dR4HEvyR+PQzjrr5RiccIQL9tPso/ddBKQ2Qz0V4Icm7jBUzpr2
++sAYHM0JJldXtToVmzT4onGrQKgZ9avwRH+WLltjfnnZLEYBXuBeCEGc1Cj9aFmf3
++tHxLKjWAp3eBC2icqfK0s/FHfwKBgQD4mrkyvrNx3Bxxpu6axKcyi1N9qA0SECyp
++JuMFF/VIXhpu9XjFeK5ENByT1dX515mJpHBiTjx1pNQ1KRN8BnWXmLBBT4pkP5L4
++KeYGUfGymauM0WsCGvn/ZvNHCyn59pIEYl1JZtQ5PlilGoqxO3eEd2udM/9p8x9l
++cV/g688sDQKBgQCTwzXOOFLx1GPrpXoSqBvLDgVorzk07kf823SMMxNsWpOdMtIq
++Jqbp6mdDEu3uhJ0xOEU33fLEFIov3ZhV/9JHvPd+5kAPZf4tptZSKONRZonOPSnB
++TQ+1n2jz5XAVm/WtZpg9CyWipJFbSest2Xs890XEQklyQR/LOqZkr0cCOQKBgGJD
++RdB48BShG90QTl9+O1gPGgEg24m4Ou7hH/pzbdAc4fXZsNLc0ITE1EbazqjiPx3Y
++kVNJ+TvG2tnoUntDUleJUqF9/wWA22abqP/2g8JEWzpdzB4Y65e36ZC7KOxUOYLi
++Hl1U961op0EbLJbBGoyRZ0fLtbj7D/3Ywjz09/5BAoGABoIlIHJ9eWr0mTPQK83q
++iEpJKIIXqw592xtVjpFDptYrNJrpaaEoj3xRsbwzm6qAqcA2/1hOLsGA5svMsuIE
++t9rxc0SPUdOW0O7gY6/KFmZJuwjHMqhsvodbUcoj18W1FP+ZnzNfMCHxPEoPnhBa
++VnmwmMYc91vtmgKjYM5jrQU=
++-----END PRIVATE KEY-----
++"#;
++const PUBLIC_KEY: &[u8] = br#"-----BEGIN PUBLIC KEY-----
++MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA9RQbjYmcpA/Bpmpwawjt
++D5UVFgQeE0CCJez1aILJbaujbHQyykhd+h7SMwi557r6mORdOrHVSSsL5VeN3GvB
++kGtlxGmiOSv3s6/DitWFgH284wX6W2e1KHkLCEiO8dpbOqt8rsSSOJ7cs6pEvVsa
++qDJL4Y66UH7H10iS1RWMj7ra4GlZDQfkiWEKuW8JBFcupfWi88pvMkonpv5QqfC/
++K76WCRiE6j+loxaeeR6Xx294phnvURQxdcrBccAUigxOSSOKCqS3DTPUMB2TZpWh
++BjOUy4cbDCz2ioA2glXRgoZ4cjpdlMIz2TcHQMyy4oSJbmOZeLidf27yWg71ADt1
++cwIDAQAB
++-----END PUBLIC KEY-----
++"#;
++const ISSUER: &str = "https://realm.example/oauth2/mail";
++
++fn provider(userinfo: String) -> OpenIdDirectory {
++    let mut keys = AHashMap::new();
++    keys.insert("fixture".into(), Arc::new(CachedKey {
++        decoding_key: DecodingKey::from_rsa_pem(PUBLIC_KEY).unwrap(),
++        algorithm: Algorithm::RS256,
++    }));
++    OpenIdDirectory {
++        config: OidcConfig {
++            issue_url: ISSUER.into(), require_aud: Some("mail".into()),
++            require_scopes: vec!["openid".into()], claim_email: "email".into(),
++            claim_name: None, claim_groups: None, default_domain: None,
++        },
++        discovery: OidcDiscovery { url: ISSUER.into(), document: DiscoveryDocument {
++            issuer: ISSUER.into(), jwks_uri: "http://127.0.0.1:1/unreachable".into(),
++            userinfo_endpoint: userinfo, token_endpoint: String::new(), authorization_endpoint: String::new(),
++            end_session_endpoint: None, scopes_supported: None, claims_supported: None,
++            code_challenge_methods_supported: None,
++        }},
++        http: utils::http::http_client_builder(false).build().unwrap(),
++        cache: RwLock::new(JwksCache { keys, last_updated: Instant::now() }),
++    }
++}
++
++fn token(issuer: &str, audience: &str) -> String {
++    let mut header = Header::new(Algorithm::RS256);
++    header.kid = Some("fixture".into());
++    encode(&header, &json!({"iss":issuer,"aud":audience,"sub":"person-uuid", "scope":"openid",
++        "exp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()+300}),
++        &EncodingKey::from_rsa_pem(PRIVATE_KEY).unwrap()).unwrap()
++}
++
++#[tokio::test]
++async fn issuer_only_jwt_uses_validated_userinfo_identity() {
++    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++    let url = format!("http://{}/userinfo", listener.local_addr().unwrap());
++    let server = std::thread::spawn(move || {
++        let (mut stream, _) = listener.accept().unwrap();
++        stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
++        let mut buffer = [0;8192]; let count=stream.read(&mut buffer).unwrap();
++        assert!(std::str::from_utf8(&buffer[..count]).unwrap().to_ascii_lowercase().contains("authorization: bearer "));
++        let body=r#"{"sub":"person-uuid","email":"person@realm.example"}"#;
++        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
++    });
++    let account=provider(url).authenticate(&crate::Credentials::Bearer {username:None, token:token(ISSUER,"mail")}).await.unwrap();
++    assert_eq!(account.email,"person@realm.example");
++    server.join().unwrap();
++}
++
++#[tokio::test]
++async fn invalid_signature_audience_or_issuer_cannot_reach_userinfo() {
++    let provider=provider("http://127.0.0.1:1/must-not-fetch".into());
++    let valid=token(ISSUER,"mail");
++    let (claims,signature)=valid.rsplit_once('.').unwrap();
++    let changed=if signature.starts_with('A') {'B'} else {'A'};
++    let invalid=format!("{claims}.{changed}{}",&signature[1..]);
++    for token in [invalid,token(ISSUER,"wrong-audience"),token("https://other.example/","mail")] {
++        let error=provider.authenticate(&crate::Credentials::Bearer {username:None,token}).await.unwrap_err();
++        assert!(error.to_string().contains("JWT validation failed"),"{error}");
++    }
++}
+diff --git a/crates/directory/src/backend/oidc/mod.rs b/crates/directory/src/backend/oidc/mod.rs
+index 0ddb931..c78e1b5 100644
+--- a/crates/directory/src/backend/oidc/mod.rs
++++ b/crates/directory/src/backend/oidc/mod.rs
+@@ -93,0 +94,3 @@ impl std::error::Error for OidcError {}
++
++#[cfg(test)]
++mod issuer_tests;
