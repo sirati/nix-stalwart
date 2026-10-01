@@ -43,7 +43,7 @@ stalwart_0_16.overrideAttrs (old: {
     fi
   '';
 
-  patches = (old.patches or [ ]) ++ [ ./patches/domain-directory-routing.patch ];
+  patches = (old.patches or [ ]) ++ [ ./patches/domain-directory-routing.patch ./patches/oidc-authentication-tests.patch ];
 
   postPatch = (old.postPatch or "") + ''
     substituteInPlace crates/common/src/manager/defaults.rs \
@@ -51,6 +51,12 @@ stalwart_0_16.overrideAttrs (old: {
       ${lib.escapeShellArg packagedWebui} \
       --replace-fail ${lib.escapeShellArg upstreamAsnDefault} \
       ${lib.escapeShellArg "&Asn::Disabled.into(),"}
+  '';
+
+  preBuild = (old.preBuild or "") + ''
+    rustc --edition=2024 --test crates/common/src/auth/domain_directory.rs -o domain-directory-tests
+    ./domain-directory-tests
+    cargo test --offline --release --package directory --lib --no-default-features --features ${lib.escapeShellArg (lib.concatStringsSep "," ((map (feature: "store/${feature}") features) ++ (map (feature: "directory/${feature}") (lib.filter (feature: builtins.elem feature [ "postgres" "mysql" "sqlite" ]) features))))} issuer_tests
   '';
 
   meta = (old.meta or { }) // {

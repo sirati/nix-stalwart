@@ -1,31 +1,65 @@
 diff --git a/crates/common/src/auth/authentication.rs b/crates/common/src/auth/authentication.rs
-index d24568c..c0a96cd 100644
+index d24568c..ba571a5 100644
 --- a/crates/common/src/auth/authentication.rs
 +++ b/crates/common/src/auth/authentication.rs
-@@ -3,3 +3,3 @@
-  *
+@@ -4 +4 @@
 - * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
 + * SPDX-License-Identifier: AGPL-3.0-only
-  */
-@@ -11,2 +11,3 @@ use crate::{
-         credential::{ApiKey, AppPassword},
-+        domain_directory::{normalize_domain, select_configured_or_default},
-         oauth::GrantType,
-@@ -518,4 +519,10 @@ impl Server {
-     ) -> trc::Result<Option<&Arc<Directory>>> {
+@@ -11,0 +12 @@ use crate::{
++        domain_directory::{normalize_domain, select_configured_or_default, select_unique_issuer, identity_directory_matches},
+@@ -319,5 +320,14 @@ impl Server {
+-                // Obtain external directory, if any. When no username is supplied
+-                // (e.g. HTTP bearer auth), peek at the JWT claims to find the
+-                // user's domain so per-domain OIDC directories are reachable.
+-                let directory = if let Some(username) = username.as_deref().map(UsernameParts::new)
+-                {
++                // The issuer is only an untrusted routing hint. Match configured
++                // providers exactly; their OIDC authentication still validates
++                // the signature, issuer, audience and scopes before userinfo.
++                let issuer = extract_jwt_claims(token)
++                    .and_then(|claims| claims.get("iss").and_then(|v| v.as_str()).map(str::to_owned));
++                let directory = if let Some(issuer) = issuer.as_deref() {
++                    select_unique_issuer(issuer, self.core.storage.directories.values()
++                        .filter_map(|directory| match directory.as_ref() {
++                            Directory::OpenId(provider) => Some((provider.discovery.document.issuer.as_str(), directory)),
++                            _ => None,
++                        }))
++                        .map_err(|()| trc::AuthEvent::Failed.into_err()
++                            .reason("Ambiguous OIDC issuer configuration"))?
++                } else if let Some(username) = username.as_deref().map(UsernameParts::new) {
+@@ -343,0 +354,21 @@ impl Server {
++                            // Authenticated identities must belong to the selected
++                            // provider's configured tenant, including userinfo-only
++                            // emails. Never let a provider mint another tenant's user.
++                            if issuer.is_some() {
++                                let Some((_, domain)) = result.email.rsplit_once('@') else {
++                                    return Err(trc::AuthEvent::Failed.into_err()
++                                        .reason("OIDC identity has no domain"));
++                                };
++                                let expected = if let Some(domain) = normalize_domain(domain) {
++                                    self.domain(domain.as_ref()).await?
++                                        .and_then(|domain| domain.id_directory)
++                                        .and_then(|id| self.get_directory(&id))
++                                } else {
++                                    None
++                                };
++                                if !identity_directory_matches(expected, directory)
++                                {
++                                    return Err(trc::AuthEvent::Failed.into_err()
++                                        .reason("OIDC identity does not belong to its configured directory"));
++                                }
++                            }
+@@ -518,0 +550,3 @@ impl Server {
 +        let Some(domain_name) = normalize_domain(domain_name) else {
 +            return Ok(self.get_default_directory());
 +        };
--
-+
+@@ -520 +554,4 @@ impl Server {
 -        Ok(self.get_default_directory())
 +        Ok(match self.domain(domain_name.as_ref()).await? {
 +            Some(domain) => self.get_directory_for_cached_domain(&domain),
 +            None => self.get_default_directory(),
 +        })
-     }
-@@ -523,4 +530,7 @@ impl Server {
-     pub fn get_directory_for_cached_domain(&self, domain: &DomainCache) -> Option<&Arc<Directory>> {
+@@ -524,2 +561,5 @@ impl Server {
 -
 -        self.get_default_directory()
 +        select_configured_or_default(
@@ -33,26 +67,22 @@ index d24568c..c0a96cd 100644
 +            self.get_default_directory(),
 +            |directory_id| self.get_directory(&directory_id),
 +        )
-     }
-diff --git a/crates/common/src/auth/mod.rs b/crates/common/src/auth/mod.rs
-index c4e9870..007688d 100644
---- a/crates/common/src/auth/mod.rs
-+++ b/crates/common/src/auth/mod.rs
-@@ -3,3 +3,3 @@
-  *
-- * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
-+ * SPDX-License-Identifier: AGPL-3.0-only
-  */
-@@ -30,2 +30,3 @@ pub mod authentication;
- pub mod credential;
-+mod domain_directory;
- pub mod oauth;
+@@ -529 +569 @@ impl Server {
+-fn extract_jwt_domain(token: &str) -> Option<String> {
++fn extract_jwt_claims(token: &str) -> Option<serde_json::Value> {
+@@ -538 +578,5 @@ fn extract_jwt_domain(token: &str) -> Option<String> {
+-    let claims: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
++    serde_json::from_slice(&payload_bytes).ok()
++}
++
++fn extract_jwt_domain(token: &str) -> Option<String> {
++    let claims = extract_jwt_claims(token)?;
 diff --git a/crates/common/src/auth/domain_directory.rs b/crates/common/src/auth/domain_directory.rs
 new file mode 100644
-index 0000000..4f07451
+index 0000000..fe0cca3
 --- /dev/null
 +++ b/crates/common/src/auth/domain_directory.rs
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,159 @@
 +// SPDX-License-Identifier: AGPL-3.0-only
 +
 +#![forbid(unsafe_code)]
@@ -86,9 +116,27 @@ index 0000000..4f07451
 +    configured_id.and_then(lookup).or(default)
 +}
 +
++/// An issuer is an untrusted hint, never an authentication result. Only
++/// already-configured providers can be selected; duplicates fail closed.
++pub(crate) fn select_unique_issuer<'a, D>(
++    issuer: &str,
++    configured: impl IntoIterator<Item = (&'a str, D)>,
++) -> Result<Option<D>, ()> {
++    let mut matches = configured.into_iter().filter(|(known, _)| *known == issuer);
++    let selected = matches.next().map(|(_, directory)| directory);
++    if matches.next().is_some() { Err(()) } else { Ok(selected) }
++}
++
++pub(crate) fn identity_directory_matches<D>(
++    configured: Option<&std::sync::Arc<D>>,
++    selected: &std::sync::Arc<D>,
++) -> bool {
++    configured.is_some_and(|configured| std::sync::Arc::ptr_eq(configured, selected))
++}
++
 +#[cfg(test)]
 +mod tests {
-+    use super::{normalize_domain, select_configured_or_default};
++    use super::{normalize_domain, select_configured_or_default, select_unique_issuer, identity_directory_matches};
 +    use std::cell::Cell;
 +
 +    #[test]
@@ -154,4 +202,52 @@ index 0000000..4f07451
 +            None
 +        );
 +    }
++    #[test]
++    fn issuer_only_hint_selects_exact_configured_realm() {
++        let providers = [("https://id.a/oauth2/mail", 1), ("https://id.b/oauth2/mail", 2)];
++        assert_eq!(select_unique_issuer("https://id.b/oauth2/mail", providers), Ok(Some(2)));
++    }
++
++    #[test]
++    fn unknown_or_similar_issuer_cannot_select_a_provider() {
++        for issuer in ["https://id.a/oauth2/mail/", "https://ID.A/oauth2/mail", "https://attacker.invalid/", "https://id.a/oauth2/mail?x=1"] {
++            assert_eq!(select_unique_issuer(issuer, [("https://id.a/oauth2/mail", 1)]), Ok(None));
++        }
++    }
++
++    #[test]
++    fn ambiguous_configured_issuer_fails_closed() {
++        assert_eq!(select_unique_issuer("https://id.a/", [("https://id.a/", 1), ("https://id.a/", 2)]), Err(()));
++    }
++
++    #[test]
++    fn authenticated_identity_accepts_same_provider_and_domain_alias() {
++        let provider=std::sync::Arc::new("provider");
++        let alias=provider.clone();
++        assert!(identity_directory_matches(Some(&provider), &provider));
++        assert!(identity_directory_matches(Some(&alias), &provider));
++    }
++
++    #[test]
++    fn conflicting_email_or_userinfo_tenant_is_rejected() {
++        let provider=std::sync::Arc::new("provider");
++        let other=std::sync::Arc::new("provider");
++        assert!(!identity_directory_matches(Some(&other), &provider));
++    }
++
++    #[test]
++    fn unmapped_identity_domain_cannot_use_default_provider() {
++        let provider=std::sync::Arc::new("default provider");
++        assert!(!identity_directory_matches(None, &provider));
++    }
++
 +}
+diff --git a/crates/common/src/auth/mod.rs b/crates/common/src/auth/mod.rs
+index c4e9870..007688d 100644
+--- a/crates/common/src/auth/mod.rs
++++ b/crates/common/src/auth/mod.rs
+@@ -4 +4 @@
+- * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
++ * SPDX-License-Identifier: AGPL-3.0-only
+@@ -30,0 +31 @@ pub mod credential;
++mod domain_directory;
