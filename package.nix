@@ -43,7 +43,12 @@ stalwart_0_16.overrideAttrs (old: {
     fi
   '';
 
-  patches = (old.patches or [ ]) ++ [ ./patches/domain-directory-routing.patch ./patches/oidc-authentication-tests.patch ];
+  # Copy individual files with stable names: a module/runner edit must not
+  # change the source-store context of these otherwise identical patches.
+  patches = (old.patches or [ ]) ++ map (name: builtins.path {
+    path = ./patches + "/${name}";
+    inherit name;
+  }) [ "domain-directory-routing.patch" "oidc-authentication-tests.patch" ];
 
   postPatch = (old.postPatch or "") + ''
     substituteInPlace crates/common/src/manager/defaults.rs \

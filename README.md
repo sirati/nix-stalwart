@@ -52,6 +52,11 @@ flake.
 
 The Rust startup runner reads credentials from runtime files, applies the
 declarative plan, and reports configuration failures with credentials redacted.
+Before starting the final server, it waits up to three minutes for every
+configured OIDC issuer's verified HTTPS discovery and public signing JWKS.
+A failed preflight prevents startup; identity authentication remains
+subject to Stalwart's issuer, audience, signature, and account-domain checks.
+Providers can still become unavailable between preflight and server discovery.
 
 See [docs/prison-module.md](docs/prison-module.md) for its complete option and
 runtime reference. `nix-dev-container` is deliberately not an input of this

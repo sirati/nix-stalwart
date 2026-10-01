@@ -90,6 +90,9 @@
         in
         {
           identity-plan = import ./tests/identity-plan.nix { inherit pkgs; };
+          readiness-config = import ./tests/readiness-config.nix { inherit pkgs; };
+          package-input-isolation = import ./tests/package-input-isolation.nix { inherit pkgs; };
+          runner = self.packages.${system}.runner;
           inherit (self.packages.${system}) stalwart-domain-directories;
           upstream-module =
             assert upstreamPackage.pname == "stalwart-domain-directories";
