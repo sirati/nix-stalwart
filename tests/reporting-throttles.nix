@@ -4,8 +4,8 @@ let
   policy = port: sources: {
     inherit port;
     sourceAddresses = sources;
-    senders = [ "updatealert@noreply.it.sirati.eu" ];
-    recipients = [ "fleet-updatealerts@mail.realm.test" ];
+    senders = [ "UpdateAlert@Noreply.IT.Sirati.EU" ];
+    recipients = [ "Fleet-UpdateAlerts@Mail.Realm.Test" ];
     messagesPerHour = 600;
   };
   main = {
@@ -33,6 +33,16 @@ let
     stalwartWebui = pkgs.writeTextDir "webui.zip" "fixture";
   };
   relayPlan = import ../nixos/stalwart-relay-plan.nix { inherit lib pkgs; cfg = relay; };
+  second = (policy 25 [ "10.0.0.3" ]) // { messagesPerHour = 120; };
+  lifecyclePlan = rules: pkgs.writeText "reporting-lifecycle.ndjson"
+    (lib.concatMapStringsSep "\n" builtins.toJSON
+      (import ../nixos/stalwart-report-throttles.nix {
+        inherit lib; cfg.reportingIngress = rules;
+      }).operations + "\n");
+  two = lifecyclePlan [ (policy 25 [ "10.0.0.2" ]) second ];
+  reordered = lifecyclePlan [ second (policy 25 [ "10.0.0.2" ]) ];
+  shrunk = lifecyclePlan [ second ];
+  empty = lifecyclePlan [ ];
   bad = main // { reportingIngress = [ ((policy 25 [ "10.0.0.2' || true" ])) ]; };
   rejects = !(builtins.tryEval (builtins.deepSeq
     (import ../nixos/stalwart-report-throttles.nix { inherit lib; cfg = bad; }).operations true)).success;
@@ -42,6 +52,6 @@ pkgs.runCommand "reporting-ingress-policy" { nativeBuildInputs = [ pkgs.python3 
   export XDG_CACHE_HOME="$TMPDIR/cache"
   python3 ${./reporting-throttles.py} \
     ${pkgs.stalwart_0_16.src}/resources/schema/schema.json.gz \
-    ${mainPlan} ${relayPlan}
+    ${mainPlan} ${relayPlan} ${two} ${two} ${reordered} ${shrunk} ${empty} ${empty}
   touch $out
 ''
