@@ -5,8 +5,9 @@ let
   literal = value:
     assert builtins.match "[A-Za-z0-9.:_+@-]+" value != null;
     "'${value}'";
+  # Stalwart inbound expressions expose lowercased envelope addresses.
   any = variable: values:
-    "(" + lib.concatMapStringsSep " || " (value: "${variable} == ${literal value}") values + ")";
+    "(" + lib.concatMapStringsSep " || " (value: "${variable} == ${literal (if variable == "sender" || variable == "rcpt" then lib.toLower value else value)}") values + ")";
   predicate = rule:
     assert rule.sourceAddresses != [ ] && rule.senders != [ ] && rule.recipients != [ ];
     "(local_port == ${toString rule.port} && ${any "remote_ip" rule.sourceAddresses} && ${any "sender" rule.senders} && ${any "rcpt" rule.recipients})";
@@ -31,20 +32,32 @@ in {
       };
     });
   };
-  operations = lib.optionals (rules != [ ]) ([ {
+  operations = [ {
     "@type" = "upsert";
     object = "MtaInboundThrottle";
     matchOn = [ "description" ];
-    # Reconcile the existing upstream default by its stable description.
-    # SMTP from other peers keeps the original 25/hour sender-domain quota.
+    # Empty configuration restores the normal public SMTP quota.
     value.normal-sender-recipient = quota "Sender address to recipient throttle"
-      { SenderDomain = true; Rcpt = true; } "!${trusted}" 25;
-  } ] ++ lib.imap0 (index: rule: {
-    "@type" = "upsert";
+      { SenderDomain = true; Rcpt = true; }
+      (if rules == [ ] then "true" else "!${trusted}") 25;
+  } {
+    # Migrate the only indexed rule emitted by the published fleet policy.
+    # Exact ownership scopes never remove unrelated operator throttles.
+    "@type" = "reconcile";
     object = "MtaInboundThrottle";
     matchOn = [ "description" ];
-    value."reporting-${toString index}" = quota "Trusted reporting ingress ${toString index}"
-      { SenderDomain = true; Rcpt = true; RemoteIp = true; Listener = true; }
-      (predicate rule) rule.messagesPerHour;
-  }) rules);
+    scope.description = "Trusted reporting ingress 0";
+    value = { };
+  } {
+    "@type" = "reconcile";
+    object = "MtaInboundThrottle";
+    matchOn = [ "match" ];
+    scope.description = "Trusted reporting ingress";
+    value = lib.listToAttrs (lib.imap0 (index: rule:
+      lib.nameValuePair "reporting-${toString index}"
+        (quota "Trusted reporting ingress"
+          { SenderDomain = true; Rcpt = true; RemoteIp = true; Listener = true; }
+          (predicate rule) rule.messagesPerHour)
+    ) rules);
+  } ];
 }
