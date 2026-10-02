@@ -133,6 +133,7 @@ in {
       port = lib.mkOption { type = lib.types.port; default = 53; };
       protocol = lib.mkOption { type = lib.types.enum [ "tcp" "tls" "udp" ]; default = "tcp"; };
     };
+    reportingIngress = (import ./stalwart-report-throttles.nix { inherit lib cfg; }).option;
     generatedConfigPaths = lib.mkOption {
       type = lib.types.attrsOf lib.types.package;
       readOnly = true;

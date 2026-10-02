@@ -99,7 +99,9 @@ let
       };
     }
   ];
+  reportingThrottles = import ./stalwart-report-throttles.nix { inherit lib cfg; };
+
 in
 pkgs.writeText "stalwart-relay-plan.ndjson" (
-  lib.concatMapStringsSep "\n" json operations + "\n"
+  lib.concatMapStringsSep "\n" json (operations ++ reportingThrottles.operations) + "\n"
 )
