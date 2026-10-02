@@ -59,9 +59,9 @@ let
   };
   relay = prison.mkPrisonService {
     name = "stalwart-relay";
-    exec = [ (lib.getExe runner) ];
+    exec = [ (lib.getExe runner.package) (toString runner.configuration) ];
     uid = 2400;
-    packages = [ package pkgs.stalwart-cli pkgs.cacert pkgs.publicsuffix-list ];
+    packages = [ runner.package runner.configuration package pkgs.stalwart-cli pkgs.cacert pkgs.publicsuffix-list ];
     environment = {
       HOME = "/var/lib/stalwart";
       SSL_CERT_FILE = if cfg.tlsCaCertificateFile == null then "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" else "/trust/relay-ca.pem";

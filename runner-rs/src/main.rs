@@ -45,6 +45,30 @@ struct Account {
     password_file: Option<String>,
 }
 
+trait StartupSettings {
+    fn server(&self) -> &str;
+    fn cli(&self) -> &str;
+    fn curl(&self) -> &str;
+    fn recovery_port(&self) -> u16;
+    fn config_path(&self) -> &str;
+}
+impl StartupSettings for Config {
+    fn server(&self) -> &str {
+        &self.server
+    }
+    fn cli(&self) -> &str {
+        &self.cli
+    }
+    fn curl(&self) -> &str {
+        &self.curl
+    }
+    fn recovery_port(&self) -> u16 {
+        self.recovery_port
+    }
+    fn config_path(&self) -> &str {
+        "/var/lib/stalwart/config.json"
+    }
+}
 fn secret(path: &str) -> Result<String, String> {
     let value =
         fs::read_to_string(path).map_err(|_| format!("cannot read credential file {path}"))?;
@@ -94,12 +118,12 @@ impl Drop for Setup {
         let _ = self.0.wait();
     }
 }
-fn setup(c: &Config, auth: &str, recovery: bool) -> Result<Setup, String> {
-    let mut command = Command::new(&c.server);
+fn setup(c: &impl StartupSettings, auth: &str, recovery: bool) -> Result<Setup, String> {
+    let mut command = Command::new(c.server());
     command
-        .arg("--config=/var/lib/stalwart/config.json")
+        .arg(format!("--config={}", c.config_path()))
         .env("STALWART_RECOVERY_ADMIN", auth)
-        .env("STALWART_RECOVERY_MODE_PORT", c.recovery_port.to_string());
+        .env("STALWART_RECOVERY_MODE_PORT", c.recovery_port().to_string());
     if recovery {
         command.env("STALWART_RECOVERY_MODE", "1");
     }
@@ -113,13 +137,13 @@ fn setup(c: &Config, auth: &str, recovery: bool) -> Result<Setup, String> {
         if child.0.try_wait().map_err(|e| e.to_string())?.is_some() {
             return Err("setup server exited before becoming ready".into());
         }
-        if Command::new(&c.curl)
+        if Command::new(c.curl())
             .args([
                 "--fail",
                 "--silent",
                 "--max-time",
                 "1",
-                &format!("http://127.0.0.1:{}/", c.recovery_port),
+                &format!("http://127.0.0.1:{}/", c.recovery_port()),
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -160,18 +184,18 @@ fn redact(text: &str, secrets: &[String]) -> String {
         .collect()
 }
 fn cli(
-    c: &Config,
+    c: &impl StartupSettings,
     auth: &(String, String),
     args: &[&str],
     input: Option<&[u8]>,
     secrets: &[String],
 ) -> Result<(), String> {
     cancelled()?;
-    let mut child = Command::new(&c.cli)
+    let mut child = Command::new(c.cli())
         .args(args)
         .env(
             "STALWART_URL",
-            format!("http://127.0.0.1:{}", c.recovery_port),
+            format!("http://127.0.0.1:{}", c.recovery_port()),
         )
         .env("STALWART_USER", &auth.0)
         .env("STALWART_PASSWORD", &auth.1)
@@ -252,16 +276,24 @@ fn plan(
     Ok(result.into_bytes())
 }
 fn run() -> Result<(), String> {
-    let path = std::env::args()
-        .nth(1)
-        .ok_or("missing public startup configuration")?;
-    let c: Config = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
     unsafe {
         libc::signal(libc::SIGTERM, stop as libc::sighandler_t);
         libc::signal(libc::SIGINT, stop as libc::sighandler_t);
         libc::umask(0o077);
     }
+
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("missing public startup configuration")?;
+    let value: Value = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    if value["mode"] == "relay" {
+        return relay::run(serde_json::from_value(value).map_err(|e| e.to_string())?);
+    }
+    if !value["mode"].is_null() && value["mode"] != "full" {
+        return Err("invalid Stalwart startup mode".into());
+    }
+    let c: Config = serde_json::from_value(value).map_err(|e| e.to_string())?;
     let auth = credential(&c.bootstrap_file, c.bootstrap_username.as_deref())?;
     let admin = credential(&c.administrator_file, c.administrator_username.as_deref())?;
     let mut secrets = vec![
@@ -339,6 +371,7 @@ fn run() -> Result<(), String> {
     ))
 }
 mod readiness;
+mod relay;
 fn main() {
     if let Err(error) = run() {
         eprintln!("stalwart-run: {error}");
