@@ -306,6 +306,7 @@ in
       passwordFile = lib.mkOption { type = lib.types.str; };
     };
     accounts = accountSupport.options;
+    reportingIngress = (import ./stalwart-report-throttles.nix { inherit lib cfg; }).option;
     generatedConfigPaths = lib.mkOption {
       type = lib.types.attrsOf lib.types.package;
       readOnly = true;

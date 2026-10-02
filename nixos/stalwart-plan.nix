@@ -211,6 +211,8 @@ let
       value = { };
     }
   ];
+  reportingThrottles = import ./stalwart-report-throttles.nix { inherit lib cfg; };
+
 in
 assert builtins.all (check: check.assertion) (import ./stalwart-identity.nix { inherit lib cfg; }).assertions;
-pkgs.writeText "stalwart-plan.ndjson" (lib.concatMapStringsSep "\n" json operations + "\n")
+pkgs.writeText "stalwart-plan.ndjson" (lib.concatMapStringsSep "\n" json (operations ++ reportingThrottles.operations) + "\n")
