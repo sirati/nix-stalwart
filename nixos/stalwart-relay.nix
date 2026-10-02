@@ -64,13 +64,18 @@ let
     packages = [ package pkgs.stalwart-cli pkgs.cacert pkgs.publicsuffix-list ];
     environment = {
       HOME = "/var/lib/stalwart";
-      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      SSL_CERT_FILE = if cfg.tlsCaCertificateFile == null then "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" else "/trust/relay-ca.pem";
     };
     persist = [
       { host = cfg.stateDir; path = "/var/lib/stalwart"; }
       { host = cfg.bootstrapCredentialFile; path = "/secrets/bootstrap-credential"; readOnly = true; file = true; }
       { host = cfg.dns.keyFile; path = "/secrets/dns-update-key"; readOnly = true; file = true; }
-    ];
+    ] ++ lib.optional (cfg.tlsCaCertificateFile != null) {
+      host = cfg.tlsCaCertificateFile;
+      path = "/trust/relay-ca.pem";
+      readOnly = true;
+      file = true;
+    };
     config = cfg.generatedConfigPaths;
     openFiles = 65536;
   };
@@ -109,6 +114,11 @@ in {
       default = null;
       description = "Optional SMTP smarthost; null delivers directly through MX records.";
     };
+    tlsCaCertificateFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Optional absolute host CA bundle for normal outbound TLS verification, mounted read-only into the relay prison.";
+    };
     privateEgress = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -143,7 +153,10 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    assertions = runtimeSecret.mkAssertions "services.sirati.stalwartRelay" [
+    assertions = [ {
+      assertion = cfg.tlsCaCertificateFile == null || lib.hasPrefix "/" cfg.tlsCaCertificateFile;
+      message = "services.sirati.stalwartRelay.tlsCaCertificateFile must be an absolute host path";
+    } ] ++ runtimeSecret.mkAssertions "services.sirati.stalwartRelay" [
       { name = "bootstrapCredentialFile"; path = cfg.bootstrapCredentialFile; }
       { name = "dns.keyFile"; path = cfg.dns.keyFile; }
     ];
