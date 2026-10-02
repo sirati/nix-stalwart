@@ -15,7 +15,7 @@ let
   quota = description: key: match: count: {
     inherit description key;
     enable = true;
-    "match"."else" = match;
+    "match" = { "match" = { }; "else" = match; };
     rate = { inherit count; period = 3600000; };
   };
 in {
@@ -37,8 +37,11 @@ in {
     object = "MtaInboundThrottle";
     matchOn = [ "description" ];
     # Empty configuration restores the normal public SMTP quota.
+    # Bootstrap must own both upstream defaults before any custom quota exists.
+    value.sender-ip = (quota "Sender IP throttle" { remoteIp = true; } "true" 5)
+      // { rate = { count = 5; period = 1000; }; };
     value.normal-sender-recipient = quota "Sender address to recipient throttle"
-      { SenderDomain = true; Rcpt = true; }
+      { senderDomain = true; rcpt = true; }
       (if rules == [ ] then "true" else "!${trusted}") 25;
   } {
     # Migrate the only indexed rule emitted by the published fleet policy.
@@ -56,7 +59,7 @@ in {
     value = lib.listToAttrs (lib.imap0 (index: rule:
       lib.nameValuePair "reporting-${toString index}"
         (quota "Trusted reporting ingress"
-          { SenderDomain = true; Rcpt = true; RemoteIp = true; Listener = true; }
+          { senderDomain = true; rcpt = true; remoteIp = true; listener = true; }
           (predicate rule) rule.messagesPerHour)
     ) rules);
   } ];

@@ -1,163 +1,175 @@
-"""Check actual rendered plans with the pinned CLI schema and trust boundaries."""
-import gzip
-import http.server
+"""Exercise actual server validation, persistence and CLI reconciliation."""
+import base64
 import json
+import os
+from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
-import threading
+import tempfile
+import time
+import urllib.error
+import urllib.request
 
-assert len(sys.argv) == 10, sys.argv
-schema = gzip.open(sys.argv[1], 'rb').read()
-requests = []
-objects = None
-next_id = 0
-
-class Schema(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        requests.append(self.path)
-        if self.path == '/jmap/session':
-            payload = json.dumps({'apiUrl': '/jmap', 'capabilities': {'urn:ietf:params:jmap:core': {}}}).encode()
-        elif self.path == '/api/schema':
-            payload = schema
-        else:
-            self.send_error(404)
-            return
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def do_POST(self):
-        global next_id
-        requests.append(self.path)
-        assert self.path == '/jmap' and objects is not None
-        request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        responses = []
-        last_ids = []
-        for method, arguments, tag in request['methodCalls']:
-            assert method.startswith('x:MtaInboundThrottle/')
-            operation = method.rsplit('/', 1)[1]
-            if operation == 'query':
-                assert arguments['filter'] == {}
-                last_ids = list(objects)
-                result = {'ids': last_ids, 'total': len(last_ids)}
-            elif operation == 'get':
-                ids = arguments.get('ids', last_ids)
-                result = {'list': [objects[key] for key in ids]}
-            elif operation == 'set':
-                created, updated, destroyed = {}, {}, []
-                for client_id, value in arguments.get('create', {}).items():
-                    next_id += 1
-                    key = f'created-{next_id}'
-                    objects[key] = value | {'id': key}
-                    created[client_id] = {'id': key}
-                for key, patch in arguments.get('update', {}).items():
-                    for path, value in patch.items():
-                        tokens = [part.replace('~1', '/').replace('~0', '~') for part in path.split('/')]
-                        target = objects[key]
-                        for token in tokens[:-1]:
-                            target = target.setdefault(token, {})
-                        if value is None:
-                            target.pop(tokens[-1], None)
-                        else:
-                            target[tokens[-1]] = value
-                    updated[key] = None
-                for key in arguments.get('destroy', []):
-                    assert key in objects
-                    del objects[key]
-                    destroyed.append(key)
-                result = {'created': created, 'updated': updated, 'destroyed': destroyed}
-            else:
-                raise AssertionError(method)
-            responses.append([method, result, tag])
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({'methodResponses': responses}).encode())
-
-    def log_message(self, *args):
-        pass
+assert len(sys.argv) == 9, sys.argv
 
 def matches(expression, context):
-    # Rendered policies contain only equality tests and boolean operators.
     expression = expression.replace('&&', ' and ').replace('||', ' or ')
     expression = re.sub(r'!(?!=)', ' not ', expression).strip()
     return eval(expression, {'__builtins__': {}}, context)
 
-with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Schema) as server:
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    for path, port, source in zip(sys.argv[2:], (25, 2525), ('10.0.0.2', '192.0.2.2')):
-        subprocess.run(['stalwart-cli', '--url', f'http://127.0.0.1:{server.server_port}',
-                        '--api-key', 'schema-fixture',
-                        'apply', '--dry-run', '--file', path], check=True)
-        with open(path) as stream:
-            plans = [json.loads(line) for line in stream if line.strip()]
-        values = [value for operation in plans if operation['object'] == 'MtaInboundThrottle'
-                  for value in operation['value'].values()]
-        normal, reporting = values
-        assert normal['description'] == 'Sender address to recipient throttle'
-        assert normal['rate'] == {'count': 25, 'period': 3600000}
-        assert reporting['rate'] == {'count': 600, 'period': 3600000}
-        assert normal['key'] == {'Rcpt': True, 'SenderDomain': True}
-        assert 'RemoteIp' in reporting['key'] and 'Listener' in reporting['key']
-        # Existing 5/IP/sec rule remains untouched, and unrelated quotas survive.
-        assert [operation['scope'] for operation in plans
-                if operation['object'] == 'MtaInboundThrottle' and operation['@type'] == 'reconcile'] == [
-                    {'description': 'Trusted reporting ingress 0'},
-                    {'description': 'Trusted reporting ingress'}]
-        good = dict(local_port=port, remote_ip=source,
-                    sender='updatealert@noreply.it.sirati.eu',
-                    rcpt='fleet-updatealerts@mail.realm.test')
-        assert matches(reporting['match']['else'], good)
-        assert not matches(normal['match']['else'], good)
-        for field, value in [('local_port', port + 1), ('remote_ip', '203.0.113.99'),
-                             ('sender', 'outsider@noreply.it.sirati.eu'),
-                             ('rcpt', 'other@mail.realm.test')]:
-            bad = good | {field: value}
-            assert not matches(reporting['match']['else'], bad), field
-            assert matches(normal['match']['else'], bad), field
-    assert requests == ['/api/schema', '/jmap/session', '/api/schema', '/jmap/session'], requests
-    # Real pinned CLI matching, updates and scoped deletion run against an
-    # in-memory JMAP transport. The fixture does not implement policy matching.
-    initial = {
-        'normal': {'description': 'Sender address to recipient throttle', 'enable': True,
-                   'key': {'SenderDomain': True, 'Rcpt': True}, 'match': {'else': 'true'},
-                   'rate': {'count': 25, 'period': 3600000}},
-        'ip': {'description': 'Sender IP throttle', 'enable': True,
-               'key': {'RemoteIp': True}, 'match': {'else': 'true'},
-               'rate': {'count': 5, 'period': 1000}},
-        'legacy': {'description': 'Trusted reporting ingress 0', 'enable': True,
-                   'key': {'RemoteIp': True}, 'match': {'else': 'true'},
-                   'rate': {'count': 600, 'period': 3600000}},
-        'operator': {'description': 'Operator owned quota', 'enable': True,
-                     'key': {'Sender': True}, 'match': {'else': 'true'},
-                     'rate': {'count': 17, 'period': 3600000}},
+with tempfile.TemporaryDirectory(prefix='reporting-server-') as directory:
+    root = Path(directory)
+    with socket.socket() as reservation:
+        reservation.bind(('127.0.0.1', 0))
+        port = reservation.getsockname()[1]
+    url = f'http://127.0.0.1:{port}'
+    credential = 'schema-fixture:reporting-test-only'
+    config = root / 'config.json'
+    config.write_text(json.dumps({'@type': 'Sqlite', 'path': str(root / 'registry.sqlite'),
+                                  'poolWorkers': 2, 'poolMaxConnections': 4}))
+    config.chmod(0o600)
+    environment = os.environ | {
+        'STALWART_RECOVERY_MODE': '1', 'STALWART_RECOVERY_MODE_PORT': str(port),
+        'STALWART_RECOVERY_ADMIN': credential, 'STALWART_PUBLIC_URL': url,
+        'TOKIO_WORKER_THREADS': '2',
     }
-    objects = {key: value | {'id': key} for key, value in initial.items()}
-    previous_ids = None
-    for index, (path, counts) in enumerate(zip(sys.argv[4:], ([120, 600], [120, 600], [120, 600], [120], [], []))):
-        subprocess.run(['stalwart-cli', '--url', f'http://127.0.0.1:{server.server_port}',
-                        '--api-key', 'schema-fixture', 'apply', '--file', path], check=True)
-        managed = {value['match']['else']: (key, value['rate']['count'])
-                   for key, value in objects.items() if value['description'] == 'Trusted reporting ingress'}
-        assert sorted(count for key, count in managed.values()) == counts
-        assert 'legacy' not in objects
-        assert objects['ip'] == initial['ip'] | {'id': 'ip'}
-        assert objects['operator'] == initial['operator'] | {'id': 'operator'}
-        assert objects['normal']['rate'] == {'count': 25, 'period': 3600000}
-        if index in (1, 2):
-            assert managed == previous_ids, 'Repeat/reorder changed persistent rule identity or quota'
-        previous_ids = managed
-        if index == 3:
-            removed_peer = dict(local_port=25, remote_ip='10.0.0.2',
-                                sender='updatealert@noreply.it.sirati.eu',
-                                rcpt='fleet-updatealerts@mail.realm.test')
-            assert matches(objects['normal']['match']['else'], removed_peer)
-        if not counts:
-            assert objects['normal']['match'] == {'else': 'true'}
-            assert set(objects) == {'normal', 'ip', 'operator'}
-    server.shutdown()
-    thread.join()
-print('Both plans parse; eight negative boundaries; repeat/reorder/shrink/removal preserve quotas and unrelated policy.')
+    log = (root / 'server.log').open('w+')
+    process = subprocess.Popen([os.environ['STALWART_TEST_BINARY'], '--config', str(config)],
+                               env=environment, stdout=log, stderr=log)
+    auth = 'Basic ' + base64.b64encode(credential.encode()).decode()
+
+    def request(path, value=None):
+        headers = {'Authorization': auth}
+        payload = None
+        if value is not None:
+            headers['Content-Type'] = 'application/json'
+            payload = json.dumps(value).encode()
+        with urllib.request.urlopen(urllib.request.Request(url + path, payload, headers), timeout=10) as response:
+            return json.load(response)
+
+    def cli(path, dry_run=False, fail=False):
+        result = subprocess.run(['stalwart-cli', '--url', url, '--user', 'schema-fixture',
+                                 '--password', 'reporting-test-only', 'apply', '--file', str(path)]
+                                + (['--dry-run'] if dry_run else []),
+                                capture_output=True, text=True, timeout=60)
+        if fail:
+            assert result.returncode != 0 and 'Invalid key' in result.stderr, result
+        else:
+            assert result.returncode == 0, result.stderr
+
+    def jmap(operation, arguments):
+        method = 'x:MtaInboundThrottle/' + operation
+        result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
+                                   'methodCalls': [[method, arguments, 'c0']]})
+        name, payload, tag = result['methodResponses'][0]
+        assert name == method, result
+        assert not any(key.startswith('not') and value for key, value in payload.items()), payload
+        return payload
+
+    def snapshot():
+        ids = jmap('query', {'filter': {}, 'limit': 1000})['ids']
+        return {value['id']: value for value in jmap('get', {'ids': ids})['list']}
+
+    def described(objects, description):
+        values = [value for value in objects.values() if value['description'] == description]
+        assert len(values) == 1, (description, values)
+        return values[0]
+
+    try:
+        deadline = time.monotonic() + 30
+        while True:
+            assert process.poll() is None, 'Stalwart exited before readiness'
+            try:
+                request('/jmap/session')
+                break
+            except (OSError, urllib.error.URLError):
+                assert time.monotonic() < deadline, 'Stalwart readiness timeout'
+                time.sleep(0.1)
+        for path in sys.argv[1:3]:
+            cli(path, dry_run=True)
+        # The real SQLite recovery registry starts without SMTP defaults.
+        assert snapshot() == {}
+        cli(sys.argv[-1])
+        created_defaults = snapshot()
+        assert len(created_defaults) == 2
+        recreated_ip = described(created_defaults, 'Sender IP throttle')
+        assert recreated_ip['key'] == {'remoteIp': True}
+        assert recreated_ip['rate'] == {'count': 5, 'period': 1000}
+        normal = described(created_defaults, 'Sender address to recipient throttle')
+        assert normal['key'] == {'senderDomain': True, 'rcpt': True}
+        assert normal['rate'] == {'count': 25, 'period': 3600000}
+        cli(sys.argv[-1])
+        assert snapshot() == created_defaults
+        ip_id = recreated_ip['id']
+        normal_id = described(created_defaults, 'Sender address to recipient throttle')['id']
+        # Old enum spelling must fail in the actual server validator.
+        broken = root / 'broken-enum.ndjson'
+        body = {key: value for key, value in described(created_defaults, 'Sender address to recipient throttle').items() if key != 'id'}
+        body['key'] = {'SenderDomain': True, 'Rcpt': True}
+        broken.write_text(json.dumps({'@type': 'upsert', 'object': 'MtaInboundThrottle',
+                                     'matchOn': ['description'], 'value': {'broken': body}}) + '\n')
+        cli(broken, fail=True)
+        assert snapshot() == created_defaults
+        seed = root / 'seed.ndjson'
+        seed.write_text(json.dumps({'@type': 'create', 'object': 'MtaInboundThrottle', 'value': {
+            'legacy': {'description': 'Trusted reporting ingress 0', 'enable': True,
+                       'key': {'remoteIp': True}, 'match': {'else': 'true'},
+                       'rate': {'count': 600, 'period': 3600000}},
+            'operator': {'description': 'Operator owned quota', 'enable': True,
+                         'key': {'sender': True}, 'match': {'else': 'true'},
+                         'rate': {'count': 17, 'period': 3600000}},
+        }}) + '\n')
+        cli(seed)
+        initial_operator = described(snapshot(), 'Operator owned quota')
+        previous = None
+        for index, (path, counts) in enumerate(zip(sys.argv[3:], ([120, 600], [120, 600], [120, 600], [120], [], []))):
+            cli(path)
+            objects = snapshot()
+            normal = described(objects, 'Sender address to recipient throttle')
+            ip = described(objects, 'Sender IP throttle')
+            assert normal['id'] == normal_id and ip['id'] == ip_id
+            assert normal['rate'] == {'count': 25, 'period': 3600000}
+            assert ip == recreated_ip
+            assert described(objects, 'Operator owned quota') == initial_operator
+            assert all(value['description'] != 'Trusted reporting ingress 0' for value in objects.values())
+            managed = {value['match']['else']: (value['id'], value['rate']['count'])
+                       for value in objects.values() if value['description'] == 'Trusted reporting ingress'}
+            assert sorted(count for key, count in managed.values()) == counts
+            if index in (1, 2):
+                assert managed == previous, ('Repeat/reorder changed rule identity or quota', managed, previous, [value['match'] for value in objects.values() if value['description'] == 'Trusted reporting ingress'])
+            previous = managed
+            if index == 3:
+                removed = dict(local_port=25, remote_ip='10.0.0.2', sender='updatealert@noreply.it.sirati.eu',
+                               rcpt='fleet-updatealerts@mail.realm.test')
+                assert matches(normal['match']['else'], removed)
+            if not counts:
+                assert normal['match']['else'] == 'true' and len(objects) == 3
+        for path, port, source in zip(sys.argv[1:3], (25, 2525), ('10.0.0.2', '192.0.2.2')):
+            plans = [json.loads(line) for line in Path(path).read_text().splitlines() if line]
+            entries = [value for op in plans if op['object'] == 'MtaInboundThrottle' for value in op['value'].values()]
+            normal = next(value for value in entries if value['description'] == 'Sender address to recipient throttle')
+            reporting = next(value for value in entries if value['description'] == 'Trusted reporting ingress')
+            good = dict(local_port=port, remote_ip=source, sender='updatealert@noreply.it.sirati.eu',
+                        rcpt='fleet-updatealerts@mail.realm.test')
+            assert matches(reporting['match']['else'], good) and not matches(normal['match']['else'], good)
+            for field, value in [('local_port', port + 1), ('remote_ip', '203.0.113.99'),
+                                 ('sender', 'outsider@noreply.it.sirati.eu'), ('rcpt', 'other@mail.realm.test')]:
+                bad = good | {field: value}
+                assert not matches(reporting['match']['else'], bad)
+                assert matches(normal['match']['else'], bad)
+        print('Actual Stalwart SQLite server: create/update/reorder/shrink/remove, enum rejection and quotas passed.')
+    except Exception:
+        log.flush()
+        log.seek(0)
+        print(log.read()[-5000:], file=sys.stderr)
+        raise
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        log.close()

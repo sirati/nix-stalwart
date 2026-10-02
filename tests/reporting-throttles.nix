@@ -48,10 +48,9 @@ let
     (import ../nixos/stalwart-report-throttles.nix { inherit lib; cfg = bad; }).operations true)).success;
 in
 assert rejects;
-pkgs.runCommand "reporting-ingress-policy" { nativeBuildInputs = [ pkgs.python3 pkgs.stalwart-cli ]; SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"; } ''
+pkgs.runCommand "reporting-ingress-policy" { nativeBuildInputs = [ pkgs.python3 pkgs.stalwart-cli ]; SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"; STALWART_TEST_BINARY = lib.getExe pkgs.stalwart_0_16; } ''
   export XDG_CACHE_HOME="$TMPDIR/cache"
   python3 ${./reporting-throttles.py} \
-    ${pkgs.stalwart_0_16.src}/resources/schema/schema.json.gz \
     ${mainPlan} ${relayPlan} ${two} ${two} ${reordered} ${shrunk} ${empty} ${empty}
   touch $out
 ''
