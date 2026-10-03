@@ -24,7 +24,7 @@ fn fixture() -> Fixture {
     let python = std::env::var("PYTHON_TEST_BINARY").expect("pinned Python fixture interpreter");
     let script = format!(
         "#!{python}\n{}",
-        r#"import json,os,pathlib,signal,sys,time
+        r#"import json,os,pathlib,signal,sys,time,hashlib,base64
 root=pathlib.Path(__file__).parent
 role=pathlib.Path(__file__).stem
 state=root/'state'
@@ -33,6 +33,11 @@ def note(event):
 if role=='curl':sys.exit(0 if (root/'ready').exists() else 1)
 if role=='server':
  normal='STALWART_RECOVERY_ADMIN' not in os.environ
+ if not normal:
+  user,password=(root/'credential').read_text().removesuffix('\n').removesuffix('\r').split(':',1)
+  expected=user+':{SHA256}'+base64.b64encode(hashlib.sha256(password.encode()).digest()).decode()
+  assert os.environ['STALWART_RECOVERY_ADMIN']==expected
+  assert os.environ['STALWART_RECOVERY_ADMIN']!=user+':'+password
  phase='normal' if normal else ('recovery' if os.environ.get('STALWART_RECOVERY_MODE')=='1' else 'bootstrap')
  state.mkdir(exist_ok=True)
  if not (state/'config.json').exists():(state/'config.json').write_text('{}')
@@ -46,7 +51,7 @@ if role=='server':
   (root/'ready').unlink(missing_ok=True);note('stop-'+phase)
 if role=='cli':
  assert os.environ['STALWART_USER']=='operator'
- assert os.environ['STALWART_PASSWORD']
+ assert os.environ['STALWART_PASSWORD']==(root/'credential').read_text().removesuffix('\n').removesuffix('\r').split(':',1)[1]
  assert os.environ['STALWART_URL'].startswith('http://127.0.0.1:')
  note('cli-'+sys.argv[1])
  if sys.argv[1]=='update':
@@ -72,7 +77,7 @@ if role=='cli':
     }
     fs::write(
         root.join("credential"),
-        "operator:private-fixture-password\n",
+        "operator: {literal:$secret:with-colons_ \t \n",
     )
     .unwrap();
     fs::set_permissions(root.join("credential"), fs::Permissions::from_mode(0o600)).unwrap();

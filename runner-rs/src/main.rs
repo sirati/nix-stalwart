@@ -118,11 +118,25 @@ impl Drop for Setup {
         let _ = self.0.wait();
     }
 }
+// Stalwart interprets recovery secrets as password hashes. Encode literal
+// passwords so hash-like prefixes and whitespace retain their exact meaning.
+fn recovery_credential(auth: &str) -> Result<String, String> {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+    let (user, password) = auth.split_once(':').ok_or("invalid recovery credential")?;
+    if user.is_empty() || password.is_empty() {
+        return Err("empty recovery credential".into());
+    }
+    Ok(format!(
+        "{user}:{{SHA256}}{}",
+        base64::engine::general_purpose::STANDARD.encode(Sha256::digest(password.as_bytes()))
+    ))
+}
 fn setup(c: &impl StartupSettings, auth: &str, recovery: bool) -> Result<Setup, String> {
     let mut command = Command::new(c.server());
     command
         .arg(format!("--config={}", c.config_path()))
-        .env("STALWART_RECOVERY_ADMIN", auth)
+        .env("STALWART_RECOVERY_ADMIN", recovery_credential(auth)?)
         .env("STALWART_RECOVERY_MODE_PORT", c.recovery_port().to_string());
     if recovery {
         command.env("STALWART_RECOVERY_MODE", "1");
@@ -382,6 +396,39 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_passwords_are_literal_and_use_stalwart_supported_sha256() {
+        use base64::Engine as _;
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            recovery_credential("admin:abc").unwrap(),
+            "admin:{SHA256}ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0="
+        );
+        for password in [
+            "$random:password",
+            "_random",
+            "{PLAIN}literal",
+            "{SHA256}literal",
+            " space:tab\t ",
+            "a:b:c",
+            "special!@#$%^&*()",
+            "é 🦀",
+        ] {
+            let value = recovery_credential(&format!("admin:{password}")).unwrap();
+            let hash = value.strip_prefix("admin:{SHA256}").unwrap();
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD
+                    .decode(hash)
+                    .unwrap(),
+                Sha256::digest(password.as_bytes()).to_vec()
+            );
+            assert_eq!(value.trim(), value);
+            assert_ne!(value, format!("admin:{password}"));
+        }
+        for invalid in ["admin", ":password", "admin:"] {
+            assert!(recovery_credential(invalid).is_err());
+        }
+    }
     #[test]
     fn diagnostic_redacts_plain_and_json_escaped_credentials() {
         let password = "secret\\\"credential".to_owned();
