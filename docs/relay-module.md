@@ -1,15 +1,15 @@
 # Outbound relay prison
 
 `nixosModules.relay` provides `services.sirati.stalwartRelay`. It runs a
-separate Stalwart instance in a rootless prison with RocksDB storage and only
-one host-published SMTP listener, on port 2525 by default. The NixOS firewall
-does not expose that port publicly.
+separate Stalwart instance in a rootless prison with RocksDB storage. The prison
+publishes one SMTP listener on the host, on port 2525 by default. The NixOS
+firewall keeps that port closed to the public.
 
-The relay publishes DKIM, SPF, and DMARC records for its sending domain with
-RFC 2136. It does not publish MX, autoconfiguration, MTA-STS, or inbound mail
-service records. DKIM keys rotate automatically. The domain uses manual TLS
-certificate mode because the relay has no TLS listener; outbound SMTP still
-uses Stalwart's normal STARTTLS policy.
+The relay uses RFC 2136 to publish DKIM, SPF, and DMARC records for its sending
+domain. It publishes no MX, autoconfiguration, MTA-STS, or inbound mail service
+records. DKIM keys rotate automatically. The relay has no TLS listener, so the
+domain uses manual TLS certificate mode. Outbound SMTP still follows Stalwart's
+normal STARTTLS policy.
 
 ```nix
 {
@@ -29,17 +29,18 @@ uses Stalwart's normal STARTTLS policy.
 }
 ```
 
-The bootstrap credential contains `username:password`. The DNS key file
-contains the TSIG secret expected by Stalwart; the authoritative server needs
-a matching key whose update ACL is limited to the sending-domain apex and its
-children.
+The bootstrap credential file contains `username:password`. The DNS key file
+contains the TSIG secret in the format Stalwart expects. The authoritative
+server needs a matching key, and that key's update ACL must cover only the
+sending-domain apex and its children.
 
-`deliveryRelay = null` performs direct MX delivery. Set `deliveryRelay` to an
-address and port to use a smarthost. `privateEgress` permits only explicitly
-listed private CIDRs needed by such a smarthost. Both secret files and the
-state directory must be mutable runtime paths outside `/nix/store`; state is
-mode 0700 and owned by the relay's mapped service UID.
+With `deliveryRelay = null`, the relay delivers directly to each recipient's MX.
+Set `deliveryRelay` to an address and port to send through a smarthost.
+List the private CIDRs that such a smarthost needs in `privateEgress`. The
+relay can reach only the private CIDRs listed there. Both secret files and the state directory must be mutable
+runtime paths outside `/nix/store`. The state directory has mode 0700 and
+belongs to the relay's mapped service UID.
 
-Importing this module requires the consumer to provide `nix-dev-container` as
-a module argument. Systems importing only `nixosModules.upstream` do not fetch
+A consumer that imports this module must provide `nix-dev-container` as a
+module argument. Systems that import only `nixosModules.upstream` do not fetch
 or evaluate the prison implementation.

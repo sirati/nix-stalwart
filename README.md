@@ -24,10 +24,10 @@ nix-stalwart.lib.mkStalwart {
 
 ## NixOS module
 
-Two NixOS modules are available.
+The flake exports two NixOS modules.
 
 `nixosModules.upstream` uses the standard nixpkgs `services.stalwart` module and
-selects this flake's Stalwart package:
+sets its package to this flake's Stalwart build:
 
 ```nix
 {
@@ -43,28 +43,28 @@ selects this flake's Stalwart package:
 }
 ```
 
-`nixosModules.prison` (also exported as `nixosModules.default`) provides the
-higher-level `services.sirati.stalwart` interface. It adds declarative
-bootstrap, account, DNS, resolver, certificate, storage, and per-domain identity
-settings. This variant runs Stalwart through the `nix-dev-container` prison
-abstraction, which must be available as a module argument in the consuming
-flake.
+`nixosModules.prison`, also exported as `nixosModules.default`, provides the
+higher-level `services.sirati.stalwart` interface. It adds declarative settings
+for bootstrap, accounts, DNS, the resolver, certificates, storage, and
+per-domain identity. This variant runs Stalwart inside a `nix-dev-container`
+prison. The consuming flake must pass `nix-dev-container` as a module argument.
 
-The Rust startup runner reads credentials from runtime files, applies the
-declarative plan, and reports configuration failures with credentials redacted.
-Before starting the final server, it waits up to three minutes for every
-configured OIDC issuer's verified HTTPS discovery and public signing JWKS.
-A failed preflight prevents startup; identity authentication remains
-subject to Stalwart's issuer, audience, signature, and account-domain checks.
-Providers can still become unavailable between preflight and server discovery.
+A startup runner written in Rust reads credentials from runtime files, applies
+the declarative plan, and redacts credentials when it reports configuration
+failures. Before it starts the final server, it waits up to three minutes for
+each configured OIDC issuer to serve verified HTTPS discovery and a public
+signing JWKS. If this preflight check fails, the server does not start. Stalwart
+still checks the issuer, audience, signature, and account domain when it
+authenticates an identity. A provider can still go down between the preflight
+check and the server's own discovery.
 
-See [docs/prison-module.md](docs/prison-module.md) for its complete option and
-runtime reference. `nix-dev-container` is deliberately not an input of this
-flake. It is only required by systems that import the prison module; the
-upstream module has no prison dependency.
+[docs/prison-module.md](docs/prison-module.md) lists all of its options and
+describes its runtime behavior. `nix-dev-container` is not an input of this
+flake. Only systems that import the prison module need it. The upstream module
+does not depend on the prison.
 
-`nixosModules.relay` provides a small outbound-only instance compiled with
-RocksDB support and placed in its own prison. See
+`nixosModules.relay` runs a small outbound-only Stalwart instance, built with
+RocksDB support, in its own prison. See
 [docs/relay-module.md](docs/relay-module.md).
 
 ## License

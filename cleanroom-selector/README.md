@@ -3,10 +3,10 @@
 # Domain directory selector
 
 This Rust library selects an opaque directory ID for a domain. It normalizes
-the domain by trimming surrounding ASCII whitespace, removing one trailing DNS
-root dot, and ASCII-lowercasing the result. It skips lookup for an empty
-normalized domain and otherwise uses the mapped directory when present, falling
-back to an optional default.
+the domain in three steps: it trims surrounding ASCII whitespace, removes one
+trailing DNS root dot, and lowercases ASCII letters. If the normalized domain is
+empty, it skips the lookup and returns the optional default. Otherwise it
+returns the mapped directory if one exists, and the optional default if not.
 
 ```rust
 use domain_directory_selector::select_directory_for_domain;

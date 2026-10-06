@@ -2,12 +2,12 @@
 
 # Licensing
 
-This repository uses two licenses. The complete license texts are stored in
+This repository uses two licenses. The full license texts are in
 [`licences/`](licences/).
 
 ## MIT
 
-The following independently written material is licensed under the MIT License:
+The following files were written independently and are licensed under the MIT License:
 
 - `.gitignore`
 - `license.md`
@@ -24,7 +24,7 @@ The following independently written material is licensed under the MIT License:
 - every file under `nixos/`
 
 The clean-room selector was written from the public functional specification
-without access to Stalwart source. It is a generic library and is not derived
+without access to Stalwart source. It is a generic library and does not derive
 from Stalwart.
 
 ## Apache-2.0 OR MIT
@@ -35,12 +35,12 @@ from Stalwart.
 
 `patches/domain-directory-routing.patch` and
 `patches/stalwart-cli-secret-file.patch` are licensed under AGPL-3.0-only. They apply independently specified behavior to files from
-Stalwart's AGPL community source and includes context from those files.
+Stalwart's AGPL community source and include context from those files.
 
-Stalwart source fetched during the Nix build is not stored in this repository.
-Each fetched upstream file retains its own license notice. The build runs the
-upstream ossification script before applying the AGPL patch and rejects any
-remaining Rust file marked `LicenseRef-SEL`.
+This repository does not store the Stalwart source that the Nix build fetches.
+Each fetched upstream file keeps its own license notice. The build runs the
+upstream ossification script before it applies the AGPL patch, and it fails if
+any Rust file still carries the `LicenseRef-SEL` marker.
 
-The files in `licences/` are verbatim license texts and are provided as license
-notices rather than relicensed repository material.
+The files in `licences/` are verbatim license texts. They are license notices
+and are not relicensed repository material.

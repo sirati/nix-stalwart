@@ -1,14 +1,14 @@
 # Prison module reference
 
 `nixosModules.prison` provides `services.sirati.stalwart`. It builds the same
-Stalwart package as the native module, but runs the service with the
-`nix-dev-container` prison abstraction and adds declarative API reconciliation.
-`nixosModules.default` is an alias kept for compatibility.
+Stalwart package as the native module. It runs the service in a
+`nix-dev-container` prison and adds declarative reconciliation through the
+Stalwart API. `nixosModules.default` is a compatibility alias for it.
 
 ## Flake wiring
 
-The prison implementation is intentionally not a `nix-stalwart` flake input.
-Only a consumer that imports this module must provide `nix-dev-container`:
+The prison implementation is not a `nix-stalwart` flake input. A consumer that
+imports this module must provide `nix-dev-container` itself:
 
 ```nix
 {
@@ -26,7 +26,7 @@ Only a consumer that imports this module must provide `nix-dev-container`:
 }
 ```
 
-Systems using `nixosModules.upstream` do not need that input or module
+Systems that use `nixosModules.upstream` do not need that input or module
 argument.
 
 ## Required options
@@ -35,33 +35,33 @@ argument.
 | --- | --- |
 | `enable` | Enables the prison, bootstrap, reconciliation, and edge listeners. |
 | `hostname` | Public Stalwart hostname, such as `mail.example.org`. |
-| `defaultDomain` | Domain used as Stalwart's default mail domain. |
+| `defaultDomain` | Stalwart's default mail domain. |
 | `domains` | Complete list of managed primary and alias domains. |
-| `webDomains` | Hostnames routed by the edge reverse proxy to Stalwart. |
-| `bootstrapCredentialFile` or `bootstrapPasswordFile` | Runtime `username:password` credential or bare password for bootstrap and recovery API calls. Bare passwords use the temporary `admin` username. Set exactly one. |
+| `webDomains` | Hostnames that the edge reverse proxy routes to Stalwart. |
+| `bootstrapCredentialFile` or `bootstrapPasswordFile` | Runtime `username:password` credential or bare password for bootstrap and recovery API calls. A bare password uses the temporary `admin` username. Set exactly one. |
 | `administratorCredentialFile` or `administratorPasswordFile` | Runtime `admin@<administratorDomain>:<password>` credential or bare password for the permanent administrator. Set exactly one. |
-| `database.host` | PostgreSQL host visible from the prison. |
-| `database.passwordFile` | Runtime file containing the PostgreSQL password. |
-| `dns.host` | Authoritative DNS server used for RFC 2136 updates. |
-| `dns.keyFile` | Runtime file containing the TSIG secret. |
+| `database.host` | PostgreSQL host reachable from the prison. |
+| `database.passwordFile` | Runtime file with the PostgreSQL password. |
+| `dns.host` | Authoritative DNS server that receives RFC 2136 updates. |
+| `dns.keyFile` | Runtime file with the TSIG secret. |
 
-All secret-file options must be absolute runtime paths outside `/nix/store`.
-The module mounts them read-only and does not copy their contents into a Nix
-derivation.
+Every secret-file option must be an absolute runtime path outside `/nix/store`.
+The module mounts these files read-only and does not copy their contents into a
+Nix derivation.
 
 ## General options
 
 | Option | Type and default | Meaning |
 | --- | --- | --- |
-| `webPort` | port, `8081` | Internal HTTP listener used by the edge proxy. |
-| `recoveryPort` | port, `18081` | Loopback recovery API used during bootstrap and reconciliation. |
+| `webPort` | port, `8081` | Internal HTTP listener that the edge proxy forwards to. |
+| `recoveryPort` | port, `18081` | Loopback recovery API for bootstrap and reconciliation. |
 | `generatedConfigPaths` | read-only attribute set | Store files mounted under `/config`, keyed by relative path. |
-| `manualCertificateFile` | null or path, `null` | Runtime PEM certificate used when ACME is disabled. |
-| `manualPrivateKeyFile` | null or path, `null` | Runtime PEM private key used when ACME is disabled. |
+| `manualCertificateFile` | null or path, `null` | Runtime PEM certificate for use when ACME is disabled. |
+| `manualPrivateKeyFile` | null or path, `null` | Runtime PEM private key for use when ACME is disabled. |
 | `acme.enable` | boolean, `true` | Reconciles DNS-01 certificates for all mail domains. |
-| `acme.directory` | URL | ACME directory; defaults to Let's Encrypt production. |
+| `acme.directory` | URL | ACME directory. Defaults to Let's Encrypt production. |
 
-Both manual certificate paths are required when `acme.enable` is false.
+If `acme.enable` is false, both manual certificate paths are required.
 
 ## Database options
 
@@ -73,7 +73,7 @@ Both manual certificate paths are required when `acme.enable` is false.
 | `database.user` | string, `stalwart` | Database role. |
 | `database.passwordFile` | path | Runtime password file. |
 
-The generated bootstrap selects PostgreSQL for structured data and uses its
+The generated bootstrap stores structured data in PostgreSQL and uses its
 default blob, search, and in-memory stores.
 
 ## DNS update options
@@ -89,17 +89,17 @@ default blob, search, and in-memory stores.
 | `dns.pollingIntervalMs` | positive integer, `10000` | Propagation polling interval. |
 | `dns.propagationTimeoutMs` | positive integer, `300000` | Maximum propagation wait. |
 
-The TSIG algorithm is HMAC-SHA256. Bootstrap leaves DNS manual; reconciliation
-switches to automatic publication only after the DNS server and validating
+The TSIG algorithm is HMAC-SHA256. Bootstrap sets DNS to manual. Reconciliation
+switches to automatic publication once the DNS server and the validating
 resolver are configured.
 
 ## Resolver options
 
 | Option | Type and default | Meaning |
 | --- | --- | --- |
-| `resolver.address` | string, `192.0.2.3` | Validating resolver address visible inside the prison. |
+| `resolver.address` | string, `192.0.2.3` | Address of the validating resolver, as seen from inside the prison. |
 | `resolver.port` | port, `53` | Resolver port. |
-| `resolver.protocol` | `tcp`, `tls`, or `udp`; `tcp` | Transport used by Stalwart. |
+| `resolver.protocol` | `tcp`, `tls`, or `udp`; `tcp` | Transport that Stalwart uses. |
 
 ## Identity directories
 
@@ -108,76 +108,80 @@ directory and routes one mail domain to it.
 
 | Entry option | Type and default | Meaning |
 | --- | --- | --- |
-| `domain` | string, attribute name | Mail domain owned by this directory. |
+| `domain` | string, attribute name | Mail domain that this directory owns. |
 | `issuerUrl` | HTTPS URL | OIDC issuer. |
 | `audience` | string, `stalwart` | Required token audience. |
 | `claimUsername` | string, `preferred_username` | Login-name claim. |
 | `claimName` | null or string, `name` | Display-name claim. |
 | `claimGroups` | null or string, `groups` | Group-membership claim. |
 
-Each directory must own a distinct domain listed in `domains`, and every issuer
+Each directory must own a different domain from `domains`, and every issuer
 must use HTTPS.
 
 The permanent administrator needs a local directory. If `defaultDomain` uses
 OIDC, set `administratorDomain` to a separate domain, such as `mail.example.org`.
-The runner creates that local domain and `admin@administratorDomain`, using
-`administratorPasswordFile`. Point backup and verification clients at that
-administrator username too.
-Set `administratorHostReaders` to the host users running those clients so
-credential deployment preserves their read access.
+The runner creates that local domain and `admin@administratorDomain` with the
+password from `administratorPasswordFile`. Configure backup and verification
+clients to use that administrator username as well.
+Set `administratorHostReaders` to the host users that run those clients, so that
+credential deployment keeps their read access.
 
 ## Accounts and aliases
 
-`accounts` is an attribute set of declaratively reconciled mailboxes.
+`accounts` is an attribute set of mailboxes that the module reconciles
+declaratively.
 
 | Entry option | Type and default | Meaning |
 | --- | --- | --- |
 | `localPart` | string | Mailbox name without `@`. |
-| `domain` | string | Primary domain, which must occur in `domains`. |
+| `domain` | string | Primary domain. It must be listed in `domains`. |
 | `description` | null or string, `null` | Optional public description. |
-| `passwordFile` | null or path, `null` | Optional runtime local or app password. Omit for OIDC-only accounts. |
+| `passwordFile` | null or path, `null` | Optional runtime local or app password. Omit it for OIDC-only accounts. |
 | `aliases` | list, `[]` | Alias records for this mailbox. |
 
-Each alias has `localPart`, `domain`, and an optional `description`. Primary and
-alias addresses must be globally unique. Public address metadata enters the Nix
-store; password contents remain runtime-only.
+Each alias has `localPart`, `domain`, and an optional `description`. Every
+primary and alias address must be globally unique. Public address
+metadata goes into the Nix store. Password contents exist only at runtime.
 
 ## Runtime behavior
 
-The service runs as UID 2400 with only `CAP_NET_BIND_SERVICE`. Its private state
-is persisted at the edge service state root under `stalwart`. Database, DNS,
-administrator, account, and manual TLS secrets are mounted read-only. The prison receives only
-the Stalwart package, Web UI, CLI, CA bundle, public suffix data, and the small
-set of tools used by the reconciliation runner.
+The service runs as UID 2400 with `CAP_NET_BIND_SERVICE` as its only capability.
+Its private state lives in the `stalwart` directory under the edge service
+state root. The module mounts the database, DNS, administrator, account, and
+manual TLS secrets read-only. The prison receives only the Stalwart package,
+Web UI, CLI, CA bundle, public suffix data, and the few tools the
+reconciliation runner uses.
 
-On an empty state directory the runner waits for PostgreSQL, starts Stalwart's
-loopback recovery endpoint, and applies the bootstrap document. On every start
-it applies the domain, certificate, DNS, resolver, identity-directory, and
-account plan before starting the normal server. Account passwords are inserted
-at runtime with `jq`; they are absent from generated plan files. The permanent
-administrator password is reconciled from its configured runtime file on every
-start, including after a database restore. The runner sets umask 077 before
-Stalwart writes runtime files. After successful reconciliation it removes
-Stalwart's one-time generated administrator credential file.
+If the state directory is empty, the runner waits for PostgreSQL, starts
+Stalwart's loopback recovery endpoint, and applies the bootstrap document. On
+every start it applies the domain, certificate, DNS, resolver,
+identity-directory, and account plan, then starts the normal server. The runner
+inserts account passwords at runtime with `jq`, so the generated plan files do
+not contain them. On every start, including after a database restore, the runner
+resets the permanent administrator password from its configured runtime file.
+The runner sets umask 077 before Stalwart writes runtime files. After a
+successful reconciliation it deletes the one-time administrator credential file
+that Stalwart generates.
 
-The edge service exposes SMTP, POP3, IMAP, submission, and ManageSieve ports:
-25, 110, 143, 465, 587, 993, 995, and 4190. Every `webDomains` entry is proxied
-to `127.0.0.1:webPort`.
+The edge service exposes the SMTP, POP3, IMAP, submission, and ManageSieve
+ports: 25, 110, 143, 465, 587, 993, 995, and 4190. The edge proxy forwards every
+`webDomains` entry to `127.0.0.1:webPort`.
 
 ### Identity aliases and ownership
 
-Configure one `identityDirectories` entry per issuer. Its `domain` is canonical;
-`aliases` lists additional mail domains sharing that same directory. Issuers and
-domain ownership must be unique.
+Configure one `identityDirectories` entry per issuer. Its `domain` is the
+canonical domain. `aliases` lists additional mail domains that use the same
+directory. Each issuer and each domain may appear in only one entry.
 
-The module owns OIDC directory objects for each configured issuer URL. On startup,
-the official CLI reconciles that exact issuer scope, preserving the canonical
-directory ID and removing obsolete alias directories after all domain references
-have been updated. Other issuers and directory types remain outside that scope.
-Do not create additional OIDC directories for a managed issuer in the administrator
-interface. Accounts and messages are not reconciliation targets.
+The module owns the OIDC directory objects for each configured issuer URL. On
+startup, the official CLI reconciles the directories for exactly those issuers.
+It keeps the canonical directory ID. It removes obsolete alias directories
+only after all domain references to them have been updated. It does not touch directories for other
+issuers or of other types. Do not create additional OIDC directories for a
+managed issuer in the administrator interface. Reconciliation does not change
+accounts or messages.
 
-Web TLS terminates at the edge proxy; Stalwart serves its internal HTTP upstream.
-Startup removes the former generated listener named `https`, preventing its
-unused port 8443 from conflicting with another service in the shared prison.
-SMTP and IMAP TLS listeners remain enabled.
+The edge proxy terminates web TLS, and Stalwart serves plain HTTP to it as the
+upstream. Startup removes the listener named `https` that the module used to
+generate, so its unused port 8443 cannot conflict with another service in the
+shared prison. The SMTP and IMAP TLS listeners stay enabled.
