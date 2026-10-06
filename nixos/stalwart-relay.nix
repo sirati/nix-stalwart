@@ -104,6 +104,8 @@ in {
     domain = lib.mkOption { type = lib.types.str; default = "noreply.it.sirati.eu"; };
     from = lib.mkOption { type = lib.types.str; default = "fault@noreply.it.sirati.eu"; };
     port = lib.mkOption { type = lib.types.port; default = 2525; };
+    # Public destinations the relay itself connects to: SMTP to recipient MX
+    # hosts (or the configured smarthost) and HTTPS for MTA-STS policies.
     deliveryRelay = lib.mkOption {
       type = lib.types.nullOr (lib.types.submodule {
         options = {
@@ -142,6 +144,16 @@ in {
       address = lib.mkOption { type = lib.types.str; default = "192.0.2.3"; };
       port = lib.mkOption { type = lib.types.port; default = 53; };
       protocol = lib.mkOption { type = lib.types.enum [ "tcp" "tls" "udp" ]; default = "tcp"; };
+      upstream = lib.mkOption {
+        type = lib.types.str;
+        example = "9.9.9.9";
+        description = ''
+          Recursive DNS resolver on the host's network that answers the relay's
+          lookups (MX, MTA-STS, TLSA) sent to resolver.address. This is not the
+          nameserver the relay publishes its records to (dns.host): an
+          authoritative server refuses recursive queries for foreign domains.
+        '';
+      };
     };
     reportingIngress = (import ./stalwart-report-throttles.nix { inherit lib cfg; }).option;
     generatedConfigPaths = lib.mkOption {
@@ -156,6 +168,13 @@ in {
     assertions = [ {
       assertion = cfg.tlsCaCertificateFile == null || lib.hasPrefix "/" cfg.tlsCaCertificateFile;
       message = "services.sirati.stalwartRelay.tlsCaCertificateFile must be an absolute host path";
+    } {
+      # Records are published through the mapped gateway, which pasta sends to
+      # the host's loopback. A loopback resolver upstream would reach that same
+      # nameserver on port 53 instead of a recursive resolver.
+      assertion = !(cfg.dns.host == "192.0.2.1"
+        && (lib.hasPrefix "127." cfg.resolver.upstream || cfg.resolver.upstream == "::1"));
+      message = "services.sirati.stalwartRelay.resolver.upstream must be a recursive resolver, not the host loopback where the nameserver in dns.host answers";
     } ] ++ runtimeSecret.mkAssertions "services.sirati.stalwartRelay" [
       { name = "bootstrapCredentialFile"; path = cfg.bootstrapCredentialFile; }
       { name = "dns.keyFile"; path = cfg.dns.keyFile; }
@@ -164,8 +183,15 @@ in {
       name = "stalwart-relay";
       services = { stalwart-relay = relay; };
       listen.tcp = [ cfg.port ];
-      egress = { mode = "internet"; lan = [ "192.0.2.1/32" ] ++ cfg.privateEgress; };
-      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" "192.0.2.3" "--dns-host" "127.0.0.1" ];
+      egress = {
+        mode = "internet";
+        lan = [ "192.0.2.1/32" ] ++ cfg.privateEgress;
+        ports = [
+          { port = if cfg.deliveryRelay == null then 25 else cfg.deliveryRelay.port; }
+          { port = 443; }
+        ];
+      };
+      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" cfg.resolver.address "--dns-host" cfg.resolver.upstream ];
       resolvers = [ "192.0.2.3" ];
     };
     programs.fuse.enable = true;

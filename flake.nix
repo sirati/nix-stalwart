@@ -92,6 +92,10 @@
           identity-plan = import ./tests/identity-plan.nix { inherit pkgs; };
           reporting-throttles = import ./tests/reporting-throttles.nix { inherit pkgs; };
           readiness-config = import ./tests/readiness-config.nix { inherit pkgs; };
+          relay-network = import ./tests/relay-network.nix {
+            inherit pkgs nixpkgs;
+            relayModule = self.nixosModules.relay;
+          };
           package-input-isolation = import ./tests/package-input-isolation.nix { inherit pkgs; };
           runner = self.packages.${system}.runner;
           inherit (self.packages.${system}) stalwart-domain-directories;
