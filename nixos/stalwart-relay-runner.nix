@@ -6,7 +6,7 @@
     mode = "relay";
     server = lib.getExe stalwart;
     cli = lib.getExe pkgs.stalwart-cli;
-    curl = lib.getExe pkgs.curl;
+    curl = lib.getExe (import ./curl-binary.nix { inherit lib pkgs; });
     recoveryPort = cfg.recoveryPort;
     configPath = "/var/lib/stalwart/config.json";
     bootstrapFile = "/secrets/bootstrap-credential";

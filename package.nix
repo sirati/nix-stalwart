@@ -2,6 +2,7 @@
 {
   lib,
   python3,
+  runCommand,
   stalwart_0_16,
   features ? [ "postgres" ],
 }:
@@ -20,6 +21,15 @@ let
                     })
                     .into(),
   '';
+
+  # rocksdb is a single-output package: its nix-support propagates the -dev
+  # outputs of its compressors, and zstd-dev propagates zstd's bin output with
+  # the zstdgrep and zstdless shell scripts. Stalwart needs only librocksdb at
+  # run time, so it links against a copy of the shared library alone.
+  rocksdbLib = runCommand "rocksdb-lib-${stalwart_0_16.rocksdb.version}" { } ''
+    mkdir -p $out/lib
+    cp -P ${stalwart_0_16.rocksdb}/lib/librocksdb.so* $out/lib/
+  '';
 in
 stalwart_0_16.overrideAttrs (old: {
   pname = "stalwart-domain-directories";
@@ -27,6 +37,16 @@ stalwart_0_16.overrideAttrs (old: {
   buildFeatures = features;
   cargoBuildFeatures = features;
   cargoCheckFeatures = features;
+
+  env = (old.env or { }) // {
+    ROCKSDB_LIB_DIR = "${rocksdbLib}/lib";
+  };
+
+  # Upstream links its Python 0.15 -> 0.16 migration script into bin/, which
+  # puts python and bash in every closure of the server. Nothing here runs it.
+  postInstall = (old.postInstall or "") + ''
+    rm $out/bin/migrate_v016
+  '';
 
   nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ python3 ];
 

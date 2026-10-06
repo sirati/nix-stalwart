@@ -5,7 +5,7 @@
   configuration = pkgs.writeText "stalwart-startup.json" (builtins.toJSON {
     server = lib.getExe stalwart;
     cli = lib.getExe pkgs.stalwart-cli;
-    curl = lib.getExe pkgs.curl;
+    curl = lib.getExe (import ./curl-binary.nix { inherit lib pkgs; });
     pgIsReady = "${pkgs.postgresql_17}/bin/pg_isready";
     databaseHost = cfg.database.host;
     databasePort = cfg.database.port;
