@@ -116,6 +116,25 @@ in {
       default = null;
       description = "Optional SMTP smarthost; null delivers directly through MX records.";
     };
+    bounceDelivery = lib.mkOption {
+      type = lib.types.nullOr (lib.types.submodule {
+        options = {
+          address = lib.mkOption {
+            type = lib.types.str;
+            default = "192.0.2.1";
+            description = "SMTP host; the default is the host's loopback as seen from the prison.";
+          };
+          port = lib.mkOption { type = lib.types.port; };
+        };
+      });
+      default = null;
+      description = ''
+        SMTP endpoint that receives every delivery status notification the
+        relay sends to its own domain, i.e. bounces of the configured senders.
+        null keeps Stalwart's local handling, which drops them: the relay has
+        no mailboxes, so each bounce fails again and is discarded.
+      '';
+    };
     tlsCaCertificateFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -175,6 +194,13 @@ in {
       assertion = !(cfg.dns.host == "192.0.2.1"
         && (lib.hasPrefix "127." cfg.resolver.upstream || cfg.resolver.upstream == "::1"));
       message = "services.sirati.stalwartRelay.resolver.upstream must be a recursive resolver, not the host loopback where the nameserver in dns.host answers";
+    } {
+      # The domain is spliced into a Stalwart routing expression.
+      assertion = builtins.match "[A-Za-z0-9.-]+" cfg.domain != null;
+      message = "services.sirati.stalwartRelay.domain must be a plain DNS name";
+    } {
+      assertion = cfg.bounceDelivery == null || builtins.match "[0-9.]+|[0-9A-Fa-f:]+" cfg.bounceDelivery.address != null;
+      message = "services.sirati.stalwartRelay.bounceDelivery.address must be an IP address";
     } ] ++ runtimeSecret.mkAssertions "services.sirati.stalwartRelay" [
       { name = "bootstrapCredentialFile"; path = cfg.bootstrapCredentialFile; }
       { name = "dns.keyFile"; path = cfg.dns.keyFile; }
@@ -185,6 +211,7 @@ in {
       listen.tcp = [ cfg.port ];
       egress = {
         mode = "internet";
+        targets = lib.optional (cfg.bounceDelivery != null) { inherit (cfg.bounceDelivery) address port; };
         lan = [ "192.0.2.1/32" ] ++ cfg.privateEgress;
         ports = [
           { port = if cfg.deliveryRelay == null then 25 else cfg.deliveryRelay.port; }

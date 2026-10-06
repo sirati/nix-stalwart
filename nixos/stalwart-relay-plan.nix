@@ -3,6 +3,7 @@
 
 let
   json = builtins.toJSON;
+  bounceDelivery = cfg.bounceDelivery or null;
   dnsRef = "#dnsserver-knot";
   listener = {
     name = "fault-submit";
@@ -85,30 +86,40 @@ let
       };
     }
   ]
-  ++ lib.optionals (cfg.deliveryRelay != null) [
-    {
-      "@type" = "upsert";
-      object = "MtaRoute";
-      matchOn = [ "name" ];
-      value.route-smarthost = {
-        "@type" = "Relay";
-        name = "smarthost";
-        inherit (cfg.deliveryRelay) address port;
-        protocol = "smtp";
-        implicitTls = false;
-        allowInvalidCerts = false;
-        authSecret."@type" = "None";
-      };
-    }
-    {
-      "@type" = "update";
-      object = "MtaOutboundStrategy";
-      value.route = {
-        match = { };
-        "else" = "'smarthost'";
-      };
-    }
-  ];
+  ++ lib.optional (cfg.deliveryRelay != null) (relayRoute "smarthost" cfg.deliveryRelay)
+  ++ lib.optional (bounceDelivery != null) (relayRoute "bounces" bounceDelivery)
+  ++ [ {
+    # Written in full every time, so dropping an option restores the default.
+    # Nothing but DSNs to the relay's own senders is addressed to its domain.
+    "@type" = "update";
+    object = "MtaOutboundStrategy";
+    value.route = {
+      match = lib.listToAttrs (lib.imap0 (index: rule: lib.nameValuePair (toString index) rule) (
+        lib.optional (bounceDelivery != null) {
+          "if" = "rcpt_domain == '${lib.toLower cfg.domain}'";
+          "then" = "'bounces'";
+        }
+        ++ lib.optional (cfg.deliveryRelay == null) {
+          "if" = "is_local_domain(rcpt_domain)";
+          "then" = "'local'";
+        }));
+      "else" = if cfg.deliveryRelay == null then "'mx'" else "'smarthost'";
+    };
+  } ];
+  relayRoute = name: target: {
+    "@type" = "upsert";
+    object = "MtaRoute";
+    matchOn = [ "name" ];
+    value."route-${name}" = {
+      "@type" = "Relay";
+      inherit name;
+      inherit (target) address port;
+      protocol = "smtp";
+      implicitTls = false;
+      allowInvalidCerts = false;
+      authSecret."@type" = "None";
+    };
+  };
   reportingThrottles = import ./stalwart-report-throttles.nix { inherit lib cfg; };
 
 in

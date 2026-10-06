@@ -44,3 +44,11 @@ belongs to the relay's mapped service UID.
 A consumer that imports this module must provide `nix-dev-container` as a
 module argument. Systems that import only `nixosModules.upstream` do not fetch
 or evaluate the prison implementation.
+
+The relay has no mailboxes. Without further configuration a bounce to one of
+its senders fails again and Stalwart drops it. Set `bounceDelivery.port` to an
+SMTP listener on the host loopback, or `bounceDelivery.address` to another IP,
+and the relay routes all mail for its domain there. Only DSNs take that route:
+failure notices and delay notices. A temporary failure becomes a failure notice
+when the queue gives up on it, after three days by default. DSNs have an empty
+envelope sender, so rejecting one causes no further bounce.
