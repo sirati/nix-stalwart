@@ -74,6 +74,16 @@ let
       object = "MtaStageRcpt";
       value.allowRelaying."else" = "local_port == ${toString cfg.port}";
     }
+    {
+      # Stalwart only adds missing Date and Message-ID on port 25 by default;
+      # Gmail rejects submitted reports that lack a Message-ID.
+      "@type" = "update";
+      object = "MtaStageData";
+      value = {
+        addDateHeader."else" = "local_port == ${toString cfg.port}";
+        addMessageIdHeader."else" = "local_port == ${toString cfg.port}";
+      };
+    }
   ]
   ++ lib.optionals (cfg.deliveryRelay != null) [
     {

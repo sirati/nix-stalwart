@@ -159,7 +159,27 @@ with tempfile.TemporaryDirectory(prefix='reporting-server-') as directory:
                 bad = good | {field: value}
                 assert not matches(reporting['match']['else'], bad)
                 assert matches(normal['match']['else'], bad)
-        print('Actual Stalwart SQLite server: create/update/reorder/shrink/remove, enum rejection and quotas passed.')
+        # Submitted reports without Message-ID/Date get them added on the
+        # relay listener (Gmail rejects mail without a Message-ID).
+        relay_ops = [line for line in Path(sys.argv[2]).read_text().splitlines()
+                     if line and json.loads(line)['object'] == 'MtaStageData']
+        assert len(relay_ops) == 1, relay_ops
+        stage_plan = root / 'relay-stage-data.ndjson'
+        stage_plan.write_text(relay_ops[0] + '\n')
+        cli(stage_plan)
+        result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
+                                   'methodCalls': [['x:MtaStageData/get', {'ids': ['singleton']}, 'c0']]})
+        stage, = result['methodResponses'][0][1]['list']
+        def evaluate(expression, context):
+            context = context | {'true': True, 'false': False}
+            for rule in expression['match'].values():
+                if matches(rule['if'], context):
+                    return matches(rule['then'], context)
+            return matches(expression['else'], context)
+        for header in ('addMessageIdHeader', 'addDateHeader'):
+            for local_port, expected in ((2525, True), (25, True), (587, False)):
+                assert evaluate(stage[header], {'local_port': local_port}) == expected, (header, stage[header])
+        print('Actual Stalwart SQLite server: create/update/reorder/shrink/remove, enum rejection, quotas and relay header defaults passed.')
     except Exception:
         log.flush()
         log.seek(0)
