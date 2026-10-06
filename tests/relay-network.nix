@@ -31,10 +31,14 @@ let
     lib.filter (lib.hasInfix "stalwartRelay") (map (a: a.message) (lib.filter (a: !a.assertion) (evaluate settings).config.assertions));
   dnsHost = spec: lib.elemAt spec.pastaOptions (lib.lists.findFirstIndex (o: o == "--dns-host") null spec.pastaOptions + 1);
   direct = prisonOf { resolver.upstream = "9.9.9.9"; };
+  dnsForward = spec: lib.elemAt spec.pastaOptions (lib.lists.findFirstIndex (o: o == "--dns-forward") null spec.pastaOptions + 1);
+  # A directly reachable resolver bypasses pasta's forwarder entirely.
+  directResolver = prisonOf { resolver = { upstream = "9.9.9.9"; address = "10.0.0.53"; }; };
   smarthost = prisonOf { resolver.upstream = "9.9.9.9"; deliveryRelay = { address = "203.0.113.25"; port = 587; }; };
 in
 assert dnsHost direct == "9.9.9.9";
-assert builtins.elem "192.0.2.3" direct.pastaOptions;
+assert dnsForward direct == "192.0.2.3";
+assert dnsForward directResolver == "192.0.2.3";
 assert direct.egress.mode == "internet";
 assert direct.egress.ports == [ { port = 25; } { port = 443; } ];
 assert builtins.elem "192.0.2.1/32" direct.egress.lan;

@@ -191,7 +191,7 @@ in {
           { port = 443; }
         ];
       };
-      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" cfg.resolver.address "--dns-host" cfg.resolver.upstream ];
+      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" "192.0.2.3" "--dns-host" cfg.resolver.upstream ];
       resolvers = [ "192.0.2.3" ];
     };
     programs.fuse.enable = true;
