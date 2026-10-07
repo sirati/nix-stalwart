@@ -23,6 +23,10 @@ in
     assertion = exactlyOne cfg.administratorCredentialFile cfg.administratorPasswordFile;
     message = "Set exactly one of services.sirati.stalwart.administratorCredentialFile and administratorPasswordFile.";
   }
+  {
+    assertion = cfg.tlsCaCertificateFile == null || lib.hasPrefix "/" cfg.tlsCaCertificateFile;
+    message = "services.sirati.stalwart.tlsCaCertificateFile must be an absolute host path";
+  }
 ]
 ++ runtimeSecret.mkAssertions "services.sirati.stalwart" ([
   {

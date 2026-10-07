@@ -120,7 +120,7 @@ let
     ];
     environment = {
       HOME = "/var/lib/stalwart";
-      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      SSL_CERT_FILE = if cfg.tlsCaCertificateFile == null then "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" else "/trust/ca.pem";
       STALWART_HOSTNAME = cfg.hostname;
       STALWART_PUBLIC_URL = "https://${cfg.hostname}";
     };
@@ -177,6 +177,12 @@ let
         file = true;
       }
     ]
+    ++ lib.optional (cfg.tlsCaCertificateFile != null) {
+      host = cfg.tlsCaCertificateFile;
+      path = "/trust/ca.pem";
+      readOnly = true;
+      file = true;
+    }
     ++ accountSupport.mounts
     ++ lib.optionals (!cfg.acme.enable && manualCertificatesPresent) [
       {
@@ -249,6 +255,11 @@ in
     manualPrivateKeyFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
+    };
+    tlsCaCertificateFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Optional absolute host CA bundle replacing the system roots for outbound TLS, such as a private ACME directory.";
     };
     acme = {
       enable = lib.mkEnableOption "DNS-01 certificates for every mail domain" // {
