@@ -63,6 +63,8 @@ let
     }
   ) cfg.accounts;
 
+  # The runner upserts the administrator's local domain before any account.
+  accountDomains = cfg.domains ++ [ cfg.administratorDomain ];
   primaryAddresses = map (entry: addressOf entry.account) accounts;
   aliasAddresses = lib.concatMap (entry: map aliasAddress entry.account.aliases) accounts;
   accountOption = lib.types.submodule {
@@ -122,14 +124,14 @@ in
       message = "Stalwart account and alias local parts must be non-empty and must not contain @.";
     }
     {
-      assertion = builtins.all (entry: builtins.elem entry.account.domain cfg.domains) accounts;
-      message = "Every Stalwart account domain must occur in services.sirati.stalwart.domains.";
+      assertion = builtins.all (entry: builtins.elem entry.account.domain accountDomains) accounts;
+      message = "Every Stalwart account domain must be in services.sirati.stalwart.domains or be its administratorDomain.";
     }
     {
       assertion = builtins.all (
-        entry: builtins.all (alias: builtins.elem alias.domain cfg.domains) entry.account.aliases
+        entry: builtins.all (alias: builtins.elem alias.domain accountDomains) entry.account.aliases
       ) accounts;
-      message = "Every Stalwart account alias domain must occur in services.sirati.stalwart.domains.";
+      message = "Every Stalwart account alias domain must be in services.sirati.stalwart.domains or be its administratorDomain.";
     }
     {
       assertion =
