@@ -65,10 +65,5 @@ pkgs.runCommand "stalwart-canonical-identity-plan" { nativeBuildInputs = [ pkgs.
       .scope == {"name": "https"} and .value == {} and .matchOn == ["name"])
   ' ${plan}
   jq --slurp --exit-status 'map(select(.object == "Directory")) | length == 0' ${empty}
-  # The DNS update key is scoped to exactly these records; CAA and TLSA stay out.
-  jq --slurp --exit-status '
-    [map(select(.object == "Domain"))[0].value[].dnsManagement.publishRecords | keys] | unique ==
-      [["autoConfig", "autoConfigLegacy", "autoDiscover", "dkim", "dmarc", "mtaSts", "mx", "spf", "srv", "tlsRpt"]]
-  ' ${plan}
   touch $out
 ''

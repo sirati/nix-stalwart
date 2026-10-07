@@ -33,8 +33,7 @@ let
       srv = true;
       mtaSts = true;
       tlsRpt = true;
-      # No CAA: it governs issuance for the whole domain, so it lives in the
-      # zone rather than with the mail DNS key.
+      caa = true;
       autoConfig = true;
       autoConfigLegacy = true;
       autoDiscover = true;
