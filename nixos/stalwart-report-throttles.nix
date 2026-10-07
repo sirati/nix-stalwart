@@ -12,6 +12,18 @@ let
     assert rule.sourceAddresses != [ ] && rule.senders != [ ] && rule.recipients != [ ];
     "(local_port == ${toString rule.port} && ${any "remote_ip" rule.sourceAddresses} && ${any "sender" rule.senders} && ${any "rcpt" rule.recipients})";
   trusted = "(" + lib.concatMapStringsSep " || " predicate rules + ")";
+  # The relay's submission listener accepts exactly these pairs: a declared
+  # sender from a declared source, to one of that rule's recipients.
+  submission = port:
+    let
+      local = builtins.filter (rule: rule.port == port) rules;
+      either = terms: if terms == [ ] then "false" else "(" + lib.concatStringsSep " || " terms + ")";
+    in {
+      sender = either (map (rule:
+        assert rule.sourceAddresses != [ ] && rule.senders != [ ];
+        "(${any "remote_ip" rule.sourceAddresses} && ${any "sender" rule.senders})") local);
+      recipient = either (map predicate local);
+    };
   quota = description: key: match: count: {
     inherit description key;
     enable = true;
@@ -19,6 +31,7 @@ let
     rate = { inherit count; period = 3600000; };
   };
 in {
+  inherit submission;
   option = lib.mkOption {
     default = [ ];
     description = "Exact trusted reporting SMTP sources, envelope addresses and bounded hourly quotas.";

@@ -161,15 +161,19 @@ with tempfile.TemporaryDirectory(prefix='reporting-server-') as directory:
                 assert matches(normal['match']['else'], bad)
         # Submitted reports without Message-ID/Date get them added on the
         # relay listener (Gmail rejects mail without a Message-ID).
+        stages = ('MtaStageData', 'MtaStageMail', 'MtaStageRcpt')
         relay_ops = [line for line in Path(sys.argv[2]).read_text().splitlines()
-                     if line and json.loads(line)['object'] == 'MtaStageData']
-        assert len(relay_ops) == 1, relay_ops
-        stage_plan = root / 'relay-stage-data.ndjson'
-        stage_plan.write_text(relay_ops[0] + '\n')
+                     if line and json.loads(line)['object'] in stages]
+        assert len(relay_ops) == len(stages), relay_ops
+        stage_plan = root / 'relay-stages.ndjson'
+        stage_plan.write_text('\n'.join(relay_ops) + '\n')
         cli(stage_plan)
-        result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
-                                   'methodCalls': [['x:MtaStageData/get', {'ids': ['singleton']}, 'c0']]})
-        stage, = result['methodResponses'][0][1]['list']
+        def stored(object_type):
+            result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
+                                       'methodCalls': [[f'x:{object_type}/get', {'ids': ['singleton']}, 'c0']]})
+            value, = result['methodResponses'][0][1]['list']
+            return value
+        stage = stored('MtaStageData')
         def evaluate(expression, context):
             context = context | {'true': True, 'false': False}
             for rule in expression['match'].values():
@@ -179,7 +183,26 @@ with tempfile.TemporaryDirectory(prefix='reporting-server-') as directory:
         for header in ('addMessageIdHeader', 'addDateHeader'):
             for local_port, expected in ((2525, True), (25, True), (587, False)):
                 assert evaluate(stage[header], {'local_port': local_port}) == expected, (header, stage[header])
-        print('Actual Stalwart SQLite server: create/update/reorder/shrink/remove, enum rejection, quotas and relay header defaults passed.')
+        # The relay listener is no open relay: only the declared sender from
+        # the declared source, to its declared recipients. Nothing may be
+        # submitted to the relay's own domain, where DSNs are routed.
+        sender_allowed = stored('MtaStageMail')['isSenderAllowed']
+        relaying = stored('MtaStageRcpt')['allowRelaying']
+        relay_domain, = [value for line in Path(sys.argv[2]).read_text().splitlines() if line
+                         for op in [json.loads(line)] if op['object'] == 'Domain'
+                         for value in op['value'].values()]
+        assert relay_domain['allowRelaying'] is False, relay_domain
+        good = dict(local_port=2525, remote_ip='192.0.2.2', sender='updatealert@noreply.it.sirati.eu',
+                    rcpt='fleet-updatealerts@mail.realm.test')
+        assert evaluate(sender_allowed, good) and evaluate(relaying, good)
+        for field, value in [('remote_ip', '203.0.113.99'), ('sender', 'outsider@noreply.it.sirati.eu'),
+                             ('sender', '')]:
+            assert not evaluate(sender_allowed, good | {field: value}), (field, value, sender_allowed)
+        for field, value in [('local_port', 25), ('remote_ip', '203.0.113.99'),
+                             ('sender', 'outsider@noreply.it.sirati.eu'), ('rcpt', 'other@mail.realm.test'),
+                             ('rcpt', 'fault@noreply.it.sirati.eu')]:
+            assert not evaluate(relaying, good | {field: value}), (field, value, relaying)
+        print('Actual Stalwart SQLite server: create/update/reorder/shrink/remove, enum rejection, quotas, relay header defaults and relay submission policy passed.')
     except Exception:
         log.flush()
         log.seek(0)

@@ -15,7 +15,9 @@ let
     name = cfg.domain;
     aliases = { };
     isEnabled = true;
-    allowRelaying = true;
+    # Nothing is delivered to the relay's own domain from outside: its DSNs
+    # are generated internally, so submissions may not address it.
+    allowRelaying = false;
     certificateManagement."@type" = "Manual";
     dkimManagement = {
       "@type" = "Automatic";
@@ -71,9 +73,16 @@ let
       value.require."else" = "local_port != ${toString cfg.port}";
     }
     {
+      # Only the declared report senders may submit, and only to their own
+      # declared recipients; the null sender of a forged DSN is refused.
+      "@type" = "update";
+      object = "MtaStageMail";
+      value.isSenderAllowed."else" = "local_port != ${toString cfg.port} || ${submission.sender}";
+    }
+    {
       "@type" = "update";
       object = "MtaStageRcpt";
-      value.allowRelaying."else" = "local_port == ${toString cfg.port}";
+      value.allowRelaying."else" = "local_port == ${toString cfg.port} && ${submission.recipient}";
     }
     {
       # Stalwart only adds missing Date and Message-ID on port 25 by default;
@@ -121,6 +130,7 @@ let
     };
   };
   reportingThrottles = import ./stalwart-report-throttles.nix { inherit lib cfg; };
+  submission = reportingThrottles.submission cfg.port;
 
 in
 pkgs.writeText "stalwart-relay-plan.ndjson" (

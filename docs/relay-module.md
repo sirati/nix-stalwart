@@ -34,6 +34,12 @@ contains the TSIG secret in the format Stalwart expects. The authoritative
 server needs a matching key, and that key's update ACL must cover only the
 sending-domain apex and its children.
 
+The listener relays only what `reportingIngress` declares: a listed sender from
+a listed source address, to one of that rule's recipients. Other senders,
+including the empty sender, are refused at MAIL FROM and other recipients at
+RCPT TO. Without a rule for the listener's port it accepts nothing. Mail to the
+relay's own domain is never accepted from a client.
+
 With `deliveryRelay = null`, the relay delivers directly to each recipient's MX.
 Set `deliveryRelay` to an address and port to send through a smarthost.
 List the private CIDRs that such a smarthost needs in `privateEgress`. The
