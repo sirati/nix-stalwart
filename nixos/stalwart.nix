@@ -205,7 +205,12 @@ let
 in
 {
   options.services.sirati.stalwart = {
-    enable = lib.mkEnableOption "Stalwart mail in the shared edge prison";
+    enable = lib.mkEnableOption "Stalwart mail in its own edge tenant prison";
+    edgeTenant = lib.mkOption {
+      type = lib.types.str;
+      default = "mail";
+      description = "Edge tenant whose prison runs Stalwart; its units are edge-TENANT-*.";
+    };
     hostname = lib.mkOption { type = lib.types.str; };
     defaultDomain = lib.mkOption { type = lib.types.str; };
     administratorDomain = lib.mkOption {
@@ -329,19 +334,32 @@ in
   config = lib.mkIf cfg.enable {
     assertions = assertions ++ accountSupport.assertions ++ identitySupport.assertions;
     services.sirati.edge.enable = true;
-    services.sirati.edge.services.stalwart = service;
-    services.sirati.edge.listenTCP = [
-      25
-      110
-      143
-      465
-      587
-      993
-      995
-      4190
-    ];
+    # Stalwart runs alone in its tenant's prison. The mail ports are
+    # published from there; Caddy reaches the web listener only through the
+    # tenant's socket, and the recovery API only Stalwart itself.
+    services.sirati.edge.tenants.${cfg.edgeTenant} = {
+      services.stalwart = service;
+      backends.web = {
+        service = "stalwart";
+        port = cfg.webPort;
+      };
+      loopback.recovery = {
+        port = cfg.recoveryPort;
+        server = "stalwart";
+      };
+      listenTCP = [
+        25
+        110
+        143
+        465
+        587
+        993
+        995
+        4190
+      ];
+    };
     services.sirati.edge.sites = lib.genAttrs cfg.webDomains (_: {
-      upstream = "127.0.0.1:${toString cfg.webPort}";
+      backend = "${cfg.edgeTenant}/web";
     });
   };
 }

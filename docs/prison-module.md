@@ -53,6 +53,7 @@ Nix derivation.
 
 | Option | Type and default | Meaning |
 | --- | --- | --- |
+| `edgeTenant` | string, `"mail"` | Edge tenant whose prison runs Stalwart. |
 | `webPort` | port, `8081` | Internal HTTP listener that the edge proxy forwards to. |
 | `recoveryPort` | port, `18081` | Loopback recovery API for bootstrap and reconciliation. |
 | `generatedConfigPaths` | read-only attribute set | Store files mounted under `/config`, keyed by relative path. |
@@ -146,8 +147,7 @@ metadata goes into the Nix store. Password contents exist only at runtime.
 ## Runtime behavior
 
 The service runs as UID 2400 with `CAP_NET_BIND_SERVICE` as its only capability.
-Its private state lives in the `stalwart` directory under the edge service
-state root. The module mounts the database, DNS, administrator, account, and
+Its private state lives in the `stalwart` directory under the edge state root. The module mounts the database, DNS, administrator, account, and
 manual TLS secrets read-only. The prison receives only the Stalwart package,
 Web UI, CLI, CA bundle, public suffix data, and the few tools the
 reconciliation runner uses.
@@ -163,9 +163,12 @@ The runner sets umask 077 before Stalwart writes runtime files. After a
 successful reconciliation it deletes the one-time administrator credential file
 that Stalwart generates.
 
-The edge service exposes the SMTP, POP3, IMAP, submission, and ManageSieve
-ports: 25, 110, 143, 465, 587, 993, 995, and 4190. The edge proxy forwards every
-`webDomains` entry to `127.0.0.1:webPort`.
+Stalwart runs alone in the prison of the edge tenant `edgeTenant` (default
+`mail`), whose host user and network namespace no other service shares. That
+prison publishes the SMTP, POP3, IMAP, submission, and ManageSieve ports: 25,
+110, 143, 465, 587, 993, 995, and 4190. The edge proxy reaches the web listener
+on `127.0.0.1:webPort` only through the tenant's unix socket, and only Stalwart
+itself may connect to the recovery port.
 
 ### Identity aliases and ownership
 
@@ -183,5 +186,4 @@ accounts or messages.
 
 The edge proxy terminates web TLS, and Stalwart serves plain HTTP to it as the
 upstream. Startup removes the listener named `https` that the module used to
-generate, so its unused port 8443 cannot conflict with another service in the
-shared prison. The SMTP and IMAP TLS listeners stay enabled.
+generate, so its unused port 8443 stays closed. The SMTP and IMAP TLS listeners stay enabled.
