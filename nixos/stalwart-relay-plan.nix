@@ -49,6 +49,28 @@ let
   };
   operations = [
     {
+      # Stalwart imports spam rules only into an empty store and never
+      # replaces existing ones. Drop the DNSBL servers so the import below
+      # restores them from the rules this Stalwart release understands.
+      "@type" = "destroy";
+      object = "SpamDnsblServer";
+    }
+    {
+      # The default URL follows the latest spam-filter release, whose DNSBL
+      # expressions use functions Stalwart 0.16 cannot parse.
+      "@type" = "update";
+      object = "SpamSettings";
+      value.spamFilterRulesUrl = "file://${cfg.spamFilterRules}";
+    }
+    {
+      "@type" = "create";
+      object = "Task";
+      value.task-relay-spam-rules = {
+        "@type" = "SpamFilterMaintenance";
+        maintenanceType = "updateRules";
+      };
+    }
+    {
       "@type" = "upsert";
       object = "DnsServer";
       matchOn = [ "description" ];

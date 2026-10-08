@@ -42,9 +42,11 @@ let
       eventsPolicy = "exclude";
     };
   };
+  spamFilterRules = "${package.spam-filter}/spam-filter-rules.json.gz";
   plan = import ./stalwart-relay-plan.nix {
     inherit lib pkgs;
     cfg = cfg // {
+      inherit spamFilterRules;
       dns = cfg.dns // { object = dnsObject; };
       resolver = cfg.resolver // { object = resolverSupport.object; };
     };
@@ -61,7 +63,7 @@ let
     name = "stalwart-relay";
     exec = [ (lib.getExe runner.package) (toString runner.configuration) ];
     uid = 2400;
-    packages = [ runner.package runner.configuration package pkgs.stalwart-cli pkgs.cacert pkgs.publicsuffix-list ];
+    packages = [ runner.package runner.configuration package package.spam-filter pkgs.stalwart-cli pkgs.cacert pkgs.publicsuffix-list ];
     environment = {
       HOME = "/var/lib/stalwart";
       SSL_CERT_FILE = if cfg.tlsCaCertificateFile == null then "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" else "/trust/relay-ca.pem";
