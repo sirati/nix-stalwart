@@ -5,11 +5,17 @@ separate Stalwart instance in a rootless prison with RocksDB storage. The prison
 publishes one SMTP listener on the host, on port 2525 by default. The NixOS
 firewall keeps that port closed to the public.
 
-The relay uses RFC 2136 to publish DKIM, SPF, and DMARC records for its sending
-domain. It publishes no MX, autoconfiguration, MTA-STS, or inbound mail service
-records. DKIM keys rotate automatically. The relay has no TLS listener, so the
-domain uses manual TLS certificate mode. Outbound SMTP still follows Stalwart's
-normal STARTTLS policy.
+The relay uses RFC 2136 to publish DKIM, SPF, DMARC and MX records for its
+sending domain, and republishes them on every start. Stalwart's SPF records are
+`v=spf1 mx -all` at the domain and `v=spf1 a -all` at the relay hostname. They
+pass only if the MX names the relay hostname, and only if that hostname's A and
+AAAA records hold the host's public addresses. You publish those A and AAAA
+records yourself. The relay publishes no autoconfiguration, MTA-STS, or inbound
+mail service records, and nothing listens behind the MX. DKIM keys rotate
+automatically. The relay signs mail from its own domain with every active key,
+RSA and Ed25519, including unauthenticated submissions on its listener. The
+relay has no TLS listener, so the domain uses manual TLS certificate mode.
+Outbound SMTP still follows Stalwart's normal STARTTLS policy.
 
 ```nix
 {
@@ -31,8 +37,9 @@ normal STARTTLS policy.
 
 The bootstrap credential file contains `username:password`. The DNS key file
 contains the TSIG secret in the format Stalwart expects. The authoritative
-server needs a matching key, and that key's update ACL must cover only the
-sending-domain apex and its children.
+server needs a matching key. That key's update ACL must cover only MX and TXT
+at the sending-domain apex, plus TXT at the relay hostname, at `_dmarc` and
+under `_domainkey`.
 
 The listener relays only what `reportingIngress` declares: a listed sender from
 a listed source address, to one of that rule's recipients. Other senders,

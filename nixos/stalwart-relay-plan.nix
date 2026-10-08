@@ -5,6 +5,14 @@ let
   json = builtins.toJSON;
   bounceDelivery = cfg.bounceDelivery or null;
   dnsRef = "#dnsserver-knot";
+  # Stalwart's SPF is "v=spf1 mx -all" at the domain and "v=spf1 a -all" at
+  # the relay hostname, so it needs the domain's MX, which names that host.
+  publishRecords = {
+    dkim = true;
+    spf = true;
+    dmarc = true;
+    mx = true;
+  };
   listener = {
     name = "fault-submit";
     protocol = "smtp";
@@ -34,11 +42,7 @@ let
       "@type" = "Automatic";
       dnsServerId = dnsRef;
       origin = cfg.dns.origin;
-      publishRecords = {
-        dkim = true;
-        spf = true;
-        dmarc = true;
-      };
+      inherit publishRecords;
     };
     subAddressing."@type" = "Disabled";
     reportAddressUri = "mailto:${cfg.from}";
@@ -60,6 +64,32 @@ let
       object = "Domain";
       matchOn = [ "name" ];
       value.domain-relay = domain;
+    }
+    {
+      # Stalwart publishes records only when a domain first turns to automatic
+      # DNS management, and a failed publication is never retried. Ask it to
+      # publish them again on every start.
+      "@type" = "create";
+      object = "Task";
+      value.task-relay-dns = {
+        "@type" = "DnsManagement";
+        domainId = "#domain-relay";
+        updateRecords = publishRecords;
+        onSuccessRenewCertificate = false;
+      };
+    }
+    {
+      # Stalwart signs only authenticated submissions by default; the relay
+      # listener's clients are authorised by address instead.
+      "@type" = "update";
+      object = "SenderAuth";
+      value.dkimSignDomain = {
+        match."0" = {
+          "if" = "is_local_domain(sender_domain) && (local_port == ${toString cfg.port} || !is_empty(authenticated_as))";
+          "then" = "sender_domain";
+        };
+        "else" = "false";
+      };
     }
     {
       "@type" = "upsert";
