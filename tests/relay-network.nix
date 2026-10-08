@@ -31,6 +31,7 @@ let
     lib.filter (lib.hasInfix "stalwartRelay") (map (a: a.message) (lib.filter (a: !a.assertion) (evaluate settings).config.assertions));
   dnsHost = spec: lib.elemAt spec.pastaOptions (lib.lists.findFirstIndex (o: o == "--dns-host") null spec.pastaOptions + 1);
   direct = prisonOf { resolver.upstream = "9.9.9.9"; };
+  outbound = prisonOf { resolver.upstream = "9.9.9.9"; outboundAddress6 = "2001:db8::25"; };
   dnsForward = spec: lib.elemAt spec.pastaOptions (lib.lists.findFirstIndex (o: o == "--dns-forward") null spec.pastaOptions + 1);
   # A directly reachable resolver bypasses pasta's forwarder entirely.
   directResolver = prisonOf { resolver = { upstream = "9.9.9.9"; address = "10.0.0.53"; }; };
@@ -38,7 +39,7 @@ let
   bounces = { resolver.upstream = "9.9.9.9"; bounceDelivery.port = 2526; };
   # Route rules in evaluation order, as the relay plan writes them.
   routeOf = settings: let
-    plan = map builtins.fromJSON (lib.filter (line: line != "")
+    plan = map (line: builtins.fromJSON (builtins.unsafeDiscardStringContext line)) (lib.filter (line: line != "")
       (lib.splitString "\n" (builtins.readFile (evaluate settings).config.services.sirati.stalwartRelay.generatedConfigPaths."plan.ndjson")));
     strategy = lib.findFirst (op: op.object == "MtaOutboundStrategy") null plan;
   in map (key: strategy.value.route.match.${key}) (lib.sort (a: b: lib.toInt a < lib.toInt b) (builtins.attrNames strategy.value.route.match))
@@ -69,6 +70,14 @@ assert routeOf { resolver.upstream = "9.9.9.9"; } == [
   "'mx'"
 ];
 assert failedAssertions { resolver.upstream = "9.9.9.9"; } == [ ];
+# A dedicated outbound IPv6 source reaches pasta; without one pasta chooses.
+assert !(builtins.elem "--outbound" direct.pastaOptions);
+assert lib.sublist (lib.length direct.pastaOptions) 2 outbound.pastaOptions == [ "--outbound" "2001:db8::25" ];
+assert failedAssertions { resolver.upstream = "9.9.9.9"; outboundAddress6 = "2001:db8::25"; } == [ ];
+assert builtins.any (lib.hasInfix "outboundAddress6 must be a bare IPv6 address")
+  (failedAssertions { resolver.upstream = "9.9.9.9"; outboundAddress6 = "192.0.2.25"; });
+assert builtins.any (lib.hasInfix "outboundAddress6 must be a bare IPv6 address")
+  (failedAssertions { resolver.upstream = "9.9.9.9"; outboundAddress6 = "2001:db8::25,--map-gw"; });
 assert builtins.any (lib.hasInfix "bounceDelivery.address must be an IP address")
   (failedAssertions (bounces // { bounceDelivery = { address = "relay.example"; port = 2526; }; }));
 assert builtins.any (lib.hasInfix "resolver.upstream must be a recursive resolver")

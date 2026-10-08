@@ -50,7 +50,14 @@ relay's own domain is never accepted from a client.
 With `deliveryRelay = null`, the relay delivers directly to each recipient's MX.
 Set `deliveryRelay` to an address and port to send through a smarthost.
 List the private CIDRs that such a smarthost needs in `privateEgress`. The
-relay can reach only the private CIDRs listed there. Both secret files and the state directory must be mutable
+relay can reach only the private CIDRs listed there.
+
+Set `outboundAddress6` to a host IPv6 address to send all of the relay's
+outbound IPv6 traffic from it, for example an address with its own PTR record.
+pasta binds its sockets to that address (`--outbound`). The address must be on
+the host. Mark it deprecated there (preferred lifetime 0), so the host's own
+connections keep using the primary address. IPv4 keeps the kernel's choice. The
+relay hostname's AAAA record must hold this address, or SPF `a` fails. Both secret files and the state directory must be mutable
 runtime paths outside `/nix/store`. The state directory has mode 0700 and
 belongs to the relay's mapped service UID.
 

@@ -142,6 +142,17 @@ in {
       default = null;
       description = "Optional absolute host CA bundle for normal outbound TLS verification, mounted read-only into the relay prison.";
     };
+    outboundAddress6 = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "2001:db8::25";
+      description = ''
+        Host IPv6 address pasta binds the relay's outbound IPv6 connections
+        to, so its mail leaves from an address with its own reverse DNS. The
+        address must be configured on the host. null keeps the kernel's
+        source address selection.
+      '';
+    };
     privateEgress = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -203,6 +214,11 @@ in {
     } {
       assertion = cfg.bounceDelivery == null || builtins.match "[0-9.]+|[0-9A-Fa-f:]+" cfg.bounceDelivery.address != null;
       message = "services.sirati.stalwartRelay.bounceDelivery.address must be an IP address";
+    } {
+      # Spliced into podman's comma-separated pasta option list.
+      assertion = cfg.outboundAddress6 == null
+        || (builtins.match "[0-9A-Fa-f:]+" cfg.outboundAddress6 != null && lib.hasInfix ":" cfg.outboundAddress6);
+      message = "services.sirati.stalwartRelay.outboundAddress6 must be a bare IPv6 address";
     } ] ++ runtimeSecret.mkAssertions "services.sirati.stalwartRelay" [
       { name = "bootstrapCredentialFile"; path = cfg.bootstrapCredentialFile; }
       { name = "dns.keyFile"; path = cfg.dns.keyFile; }
@@ -220,7 +236,8 @@ in {
           { port = 443; }
         ];
       };
-      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" "192.0.2.3" "--dns-host" cfg.resolver.upstream ];
+      pastaOptions = [ "-a" "192.0.2.2" "-n" "29" "-g" "192.0.2.1" "--map-gw" "--dns-forward" "192.0.2.3" "--dns-host" cfg.resolver.upstream ]
+        ++ lib.optionals (cfg.outboundAddress6 != null) [ "--outbound" cfg.outboundAddress6 ];
       resolvers = [ "192.0.2.3" ];
     };
     programs.fuse.enable = true;
