@@ -18,12 +18,7 @@
         stalwart-domain-directories = final.callPackage ./package.nix { };
       };
 
-      lib.mkStalwart =
-        {
-          pkgs,
-          features ? [ "postgres" ],
-        }:
-        pkgs.callPackage ./package.nix { inherit features; };
+      lib.mkStalwart = { pkgs, ... }@args: pkgs.callPackage ./package.nix (removeAttrs args [ "pkgs" ]);
 
       lib.mkPlan = args: import ./nixos/stalwart-plan.nix args;
 
@@ -47,9 +42,7 @@
         { pkgs, ... }:
         {
           imports = [ ./nixos/stalwart-relay.nix ];
-          _module.args.stalwartRelayPackage = pkgs.callPackage ./package.nix {
-            features = [ "rocks" ];
-          };
+          _module.args.stalwartRelayPackage = pkgs.callPackage ./package.nix { };
         };
 
       packages = forAllSystems (
@@ -97,7 +90,9 @@
             inherit pkgs nixpkgs;
             relayModule = self.nixosModules.relay;
           };
-          package-input-isolation = import ./tests/package-input-isolation.nix { inherit pkgs; };
+          package-input-isolation = import ./tests/package-input-isolation.nix {
+            inherit pkgs nixpkgs self;
+          };
           runner = self.packages.${system}.runner;
           inherit (self.packages.${system}) stalwart-domain-directories;
           upstream-module =

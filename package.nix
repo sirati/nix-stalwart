@@ -4,7 +4,12 @@
   python3,
   runCommand,
   stalwart_0_16,
-  features ? [ "postgres" ],
+  # The prison module stores in PostgreSQL and the relay in RocksDB. One
+  # feature set for both means a nixpkgs bump compiles Stalwart once.
+  features ? [
+    "postgres"
+    "rocks"
+  ],
 }:
 
 let

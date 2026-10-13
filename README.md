@@ -7,7 +7,8 @@ Server](https://stalw.art/).
 
 ## Package
 
-The default package enables only PostgreSQL support:
+The default package enables PostgreSQL and RocksDB support. The prison and
+relay modules both use it, so Stalwart compiles once per nixpkgs:
 
 ```console
 nix build github:sirati/nix-stalwart
@@ -63,8 +64,8 @@ describes its runtime behavior. `nix-dev-container` is not an input of this
 flake. Only systems that import the prison module need it. The upstream module
 does not depend on the prison.
 
-`nixosModules.relay` runs a small outbound-only Stalwart instance, built with
-RocksDB support, in its own prison. See
+`nixosModules.relay` runs a small outbound-only Stalwart instance, storing in
+RocksDB, in its own prison. See
 [docs/relay-module.md](docs/relay-module.md).
 
 ## License
