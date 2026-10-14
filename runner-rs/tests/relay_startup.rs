@@ -199,7 +199,10 @@ fn cancellation_reaps_blocked_cli_and_setup_without_final_exec() {
     unsafe {
         assert_eq!(libc::kill(child.id() as i32, libc::SIGTERM), 0);
     }
-    assert!(!wait(&mut child).success());
+    // A stop, not a failure: the runner ends as SIGTERM would have ended it.
+    use std::os::unix::process::ExitStatusExt;
+    let status = wait(&mut child);
+    assert_eq!(status.signal(), Some(libc::SIGTERM), "{status}");
     let got = events(&f.0);
     assert!(got.contains(&"stop-cli".into()));
     assert!(got.contains(&"stop-recovery".into()));

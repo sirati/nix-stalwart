@@ -5,14 +5,18 @@ use std::{
     io::Write,
     os::unix::process::CommandExt,
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicI32, Ordering},
     thread,
     time::{Duration, Instant},
 };
 
-static STOP: AtomicBool = AtomicBool::new(false);
-extern "C" fn stop(_: libc::c_int) {
-    STOP.store(true, Ordering::Relaxed);
+// The signal that asked startup to stop, or 0.
+static STOP: AtomicI32 = AtomicI32::new(0);
+extern "C" fn stop(signal: libc::c_int) {
+    STOP.store(signal, Ordering::Relaxed);
+}
+fn stopping() -> bool {
+    STOP.load(Ordering::Relaxed) != 0
 }
 
 #[derive(Deserialize)]
@@ -91,7 +95,7 @@ fn credential(path: &str, username: Option<&str>) -> Result<(String, String), St
     }
 }
 fn cancelled() -> Result<(), String> {
-    if STOP.load(Ordering::Relaxed) {
+    if stopping() {
         Err("startup interrupted".into())
     } else {
         Ok(())
@@ -375,7 +379,7 @@ fn run() -> Result<(), String> {
         &c.curl,
         &c.identity_issuers,
         Duration::from_secs(180),
-        || STOP.load(Ordering::Relaxed),
+        stopping,
     )?;
     Err(format!(
         "execute Stalwart: {}",
@@ -389,6 +393,15 @@ mod relay;
 fn main() {
     if let Err(error) = run() {
         eprintln!("stalwart-run: {error}");
+        // A stop during startup is not a failure: end as the signal would
+        // have ended a server without a handler for it.
+        let signal = STOP.load(Ordering::Relaxed);
+        if signal != 0 {
+            unsafe {
+                libc::signal(signal, libc::SIG_DFL);
+                libc::raise(signal);
+            }
+        }
         std::process::exit(1);
     }
 }
