@@ -55,6 +55,20 @@ let
     inherit lib pkgs cfg;
     stalwart = package;
   };
+  # What Stalwart publishes through dns.host for the plan's domain:
+  # records.rs of Stalwart 0.16 with the plan's publishRecords, its report
+  # address and both DKIM algorithms, and the default mail exchanger
+  # (priority 10, the server hostname).
+  domainName = lib.toLower cfg.domain;
+  hostName = lib.toLower cfg.hostname;
+  publishedRecords = {
+    inherit (cfg.dns) origin;
+    txt = [ { name = "${domainName}."; value = "v=spf1 mx -all"; } ]
+      ++ lib.optional (lib.hasSuffix ".${domainName}" hostName) { name = "${hostName}."; value = "v=spf1 a -all"; }
+      ++ [ { name = "_dmarc.${domainName}."; value = "v=DMARC1; p=reject; rua=mailto:${cfg.from}"; } ];
+    mx = [ { name = "${domainName}."; priority = 10; exchange = "${hostName}."; } ];
+    dkim = { name = "_domainkey.${domainName}."; algorithms = [ "ed25519" "rsa" ]; };
+  };
   generatedConfigPaths = {
     "bootstrap.json" = bootstrap;
     "plan.ndjson" = plan;
@@ -188,6 +202,17 @@ in {
       };
     };
     reportingIngress = (import ./stalwart-report-throttles.nix { inherit lib cfg; }).option;
+    publishedRecords = lib.mkOption {
+      type = lib.types.attrs;
+      readOnly = true;
+      default = publishedRecords;
+      description = ''
+        The records the relay publishes for its domain in the zone dns.origin:
+        a TXT value per owner (SPF and DMARC; Stalwart keeps other TXT
+        families at an owner), the MX RRset, and the DKIM algorithms that
+        each need a key under dkim.name. Owners are lower-case and absolute.
+      '';
+    };
     generatedConfigPaths = lib.mkOption {
       type = lib.types.attrsOf lib.types.package;
       readOnly = true;

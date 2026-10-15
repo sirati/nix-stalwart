@@ -21,6 +21,7 @@ let
   };
   relay = {
     port = 2525;
+    hostname = "relay.noreply.it.sirati.eu";
     domain = "noreply.it.sirati.eu";
     from = "fault@noreply.it.sirati.eu";
     dns = { origin = "realm.test"; object."@type" = "Manual"; };

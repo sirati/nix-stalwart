@@ -161,18 +161,32 @@ with tempfile.TemporaryDirectory(prefix='reporting-server-') as directory:
                 assert matches(normal['match']['else'], bad)
         # Submitted reports without Message-ID/Date get them added on the
         # relay listener (Gmail rejects mail without a Message-ID).
-        stages = ('MtaStageData', 'MtaStageMail', 'MtaStageRcpt')
+        # The relay's hostname reaches a store bootstrapped under another one.
+        stages = ('MtaStageData', 'MtaStageMail', 'MtaStageRcpt', 'SystemSettings')
         relay_ops = [line for line in Path(sys.argv[2]).read_text().splitlines()
                      if line and json.loads(line)['object'] in stages]
         assert len(relay_ops) == len(stages), relay_ops
         stage_plan = root / 'relay-stages.ndjson'
         stage_plan.write_text('\n'.join(relay_ops) + '\n')
+        # A store the relay bootstrapped under its former hostname.
+        def jmap_set(object_type, arguments):
+            result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
+                                       'methodCalls': [[f'x:{object_type}/set', arguments, 'c0']]})
+            payload = result['methodResponses'][0][1]
+            assert not any(key.startswith('not') and value for key, value in payload.items()), payload
+            return payload
+        domain_id = jmap_set('Domain', {'create': {'d': {'name': 'noreply.it.sirati.eu'}}})['created']['d']['id']
+        jmap_set('SystemSettings', {'update': {'singleton': {'defaultHostname': 'fault.noreply.it.sirati.eu',
+                                                             'defaultDomainId': domain_id}}})
         cli(stage_plan)
         def stored(object_type):
             result = request('/jmap', {'using': ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'],
                                        'methodCalls': [[f'x:{object_type}/get', {'ids': ['singleton']}, 'c0']]})
             value, = result['methodResponses'][0][1]['list']
             return value
+        settings = stored('SystemSettings')
+        assert settings['defaultHostname'] == 'relay.noreply.it.sirati.eu', settings
+        assert settings['defaultDomainId'] == domain_id, settings
         stage = stored('MtaStageData')
         def evaluate(expression, context):
             context = context | {'true': True, 'false': False}

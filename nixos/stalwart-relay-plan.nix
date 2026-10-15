@@ -49,6 +49,14 @@ let
   };
   operations = [
     {
+      # The bootstrap sets the hostname only in a fresh store. It is the EHLO
+      # name, the MX target and the SPF `a` host, so a changed hostname must
+      # reach existing state too.
+      "@type" = "update";
+      object = "SystemSettings";
+      value.defaultHostname = cfg.hostname;
+    }
+    {
       # Stalwart imports spam rules only into an empty store and never
       # replaces existing ones. Drop the DNSBL servers so the import below
       # restores them from the rules this Stalwart release understands.
