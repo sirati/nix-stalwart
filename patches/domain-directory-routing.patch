@@ -1,18 +1,37 @@
 diff --git a/crates/common/src/auth/authentication.rs b/crates/common/src/auth/authentication.rs
-index d24568c..ba571a5 100644
+index 9d81f98..e2f54c9 100644
 --- a/crates/common/src/auth/authentication.rs
 +++ b/crates/common/src/auth/authentication.rs
-@@ -4 +4 @@
+@@ -1,7 +1,7 @@
+ /*
+  * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+  *
 - * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
 + * SPDX-License-Identifier: AGPL-3.0-only
-@@ -11,0 +12 @@ use crate::{
+  */
+ 
+ use crate::{
+@@ -9,6 +9,7 @@ use crate::{
+     auth::{
+         AccessToken, AuthRequest, DomainCache,
+         credential::{ApiKey, AppPassword},
 +        domain_directory::{normalize_domain, select_configured_or_default, select_unique_issuer, identity_directory_matches},
-@@ -319,5 +320,14 @@ impl Server {
+         oauth::{GrantType, token::TOKEN_HEADER},
+     },
+ };
+@@ -317,15 +318,31 @@ impl Server {
+                     return Ok(AccessToken::new_admin());
+                 }
+ 
 -                // Obtain external directory, if any. When no username is supplied
 -                // (e.g. HTTP bearer auth), peek at the JWT claims to find the
 -                // user's domain so per-domain OIDC directories are reachable.
--                let directory = if let Some(username) = username.as_deref().map(UsernameParts::new)
--                {
+-                let directory = match username.as_deref().map(UsernameParts::new) {
+-                    Some(username) => match username.auth_as().domain() {
+-                        Some(domain_name) => self.get_directory_for_domain(domain_name).await?,
+-                        None => self.get_directory_for_token(token).await?,
+-                    },
+-                    None => self.get_directory_for_token(token).await?,
 +                // The issuer is only an untrusted routing hint. Match configured
 +                // providers exactly; their OIDC authentication still validates
 +                // the signature, issuer, audience and scopes before userinfo.
@@ -27,7 +46,24 @@ index d24568c..ba571a5 100644
 +                        .map_err(|()| trc::AuthEvent::Failed.into_err()
 +                            .reason("Ambiguous OIDC issuer configuration"))?
 +                } else if let Some(username) = username.as_deref().map(UsernameParts::new) {
-@@ -343,0 +354,21 @@ impl Server {
++                    if let Some(domain_name) = username.auth_as().domain() {
++                        self.get_directory_for_domain(domain_name).await?
++                    } else if let Some(domain_name) = extract_jwt_domain(token) {
++                        self.get_directory_for_domain(&domain_name).await?
++                    } else {
++                        self.get_default_directory()
++                    }
++                } else if let Some(domain_name) = extract_jwt_domain(token) {
++                    self.get_directory_for_domain(&domain_name).await?
++                } else {
++                    self.get_default_directory()
+                 };
+ 
+                 // Try external directory authentication first if supported, then fallback to internal OAuth.
+@@ -335,6 +352,27 @@ impl Server {
+                 {
+                     match directory.authenticate(&req.credentials).await {
+                         Ok(result) => {
 +                            // Authenticated identities must belong to the selected
 +                            // provider's configured tenant, including userinfo-only
 +                            // emails. Never let a provider mint another tenant's user.
@@ -49,34 +85,72 @@ index d24568c..ba571a5 100644
 +                                        .reason("OIDC identity does not belong to its configured directory"));
 +                                }
 +                            }
-@@ -518,0 +550,3 @@ impl Server {
-+        let Some(domain_name) = normalize_domain(domain_name) else {
-+            return Ok(self.get_default_directory());
-+        };
-@@ -520 +554,4 @@ impl Server {
+                             return self.build_directory_token(result, req.remote_ip).await;
+                         }
+                         Err(err) => {
+@@ -510,36 +548,41 @@ impl Server {
+         &self,
+         domain_name: &str,
+     ) -> trc::Result<Option<&Arc<Directory>>> {
+-
 -        Ok(self.get_default_directory())
+-    }
+-
+-    async fn get_directory_for_token(&self, token: &str) -> trc::Result<Option<&Arc<Directory>>> {
+-        let Some(payload) = JwtClaims::decode_payload(token) else {
+-            return Ok(self.get_default_directory());
+-        };
+-        let Some(claims) = JwtClaims::parse(&payload) else {
++        let Some(domain_name) = normalize_domain(domain_name) else {
+             return Ok(self.get_default_directory());
+         };
+ 
+-        match (claims.domain(), claims.iss.as_deref()) {
+-            (Some(domain_name), _) => self.get_directory_for_domain(domain_name).await,
+-            (None, Some(issuer)) => Ok(self
+-                .get_directory_for_issuer(issuer)
+-                .or_else(|| self.get_default_directory())),
+-            (None, None) => Ok(self.get_default_directory()),
+-        }
 +        Ok(match self.domain(domain_name.as_ref()).await? {
 +            Some(domain) => self.get_directory_for_cached_domain(&domain),
 +            None => self.get_default_directory(),
 +        })
-@@ -524,2 +561,5 @@ impl Server {
+     }
+ 
+-    fn get_directory_for_issuer(&self, issuer: &str) -> Option<&Arc<Directory>> {
 -
--        self.get_default_directory()
+-        None
++    pub fn get_directory_for_cached_domain(&self, domain: &DomainCache) -> Option<&Arc<Directory>> {
 +        select_configured_or_default(
 +            domain.id_directory,
 +            self.get_default_directory(),
 +            |directory_id| self.get_directory(&directory_id),
 +        )
-@@ -529 +569 @@ impl Server {
--fn extract_jwt_domain(token: &str) -> Option<String> {
+     }
++}
+ 
+-    pub fn get_directory_for_cached_domain(&self, domain: &DomainCache) -> Option<&Arc<Directory>> {
 +fn extract_jwt_claims(token: &str) -> Option<serde_json::Value> {
-@@ -538 +578,5 @@ fn extract_jwt_domain(token: &str) -> Option<String> {
--    let claims: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
++    let payload_bytes = JwtClaims::decode_payload(token)?;
 +    serde_json::from_slice(&payload_bytes).ok()
 +}
-+
+ 
+-        self.get_default_directory()
 +fn extract_jwt_domain(token: &str) -> Option<String> {
 +    let claims = extract_jwt_claims(token)?;
++    for claim in ["email", "preferred_username", "upn"] {
++        if let Some(val) = claims.get(claim).and_then(|v| v.as_str())
++            && let Some((_, domain)) = val.rsplit_once('@')
++            && !domain.is_empty()
++        {
++            return Some(domain.to_ascii_lowercase());
++        }
+     }
++    None
+ }
+ 
+ #[derive(Deserialize)]
 diff --git a/crates/common/src/auth/domain_directory.rs b/crates/common/src/auth/domain_directory.rs
 new file mode 100644
 index 0000000..fe0cca3
@@ -246,8 +320,20 @@ diff --git a/crates/common/src/auth/mod.rs b/crates/common/src/auth/mod.rs
 index c4e9870..007688d 100644
 --- a/crates/common/src/auth/mod.rs
 +++ b/crates/common/src/auth/mod.rs
-@@ -4 +4 @@
+@@ -1,7 +1,7 @@
+ /*
+  * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+  *
 - * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
 + * SPDX-License-Identifier: AGPL-3.0-only
-@@ -30,0 +31 @@ pub mod credential;
+  */
+ 
+ use crate::{
+@@ -28,6 +28,7 @@ use utils::{cache::CacheItemWeight, map::bitmap::Bitmap};
+ pub mod access_token;
+ pub mod authentication;
+ pub mod credential;
 +mod domain_directory;
+ pub mod oauth;
+ pub mod permissions;
+ pub mod rate_limit;
