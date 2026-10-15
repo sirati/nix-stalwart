@@ -276,31 +276,48 @@ in
       };
     };
     dns = {
-      host = lib.mkOption { type = lib.types.str; };
+      host = lib.mkOption {
+        type = lib.types.str;
+        description = "Address of the authoritative server that takes Stalwart's RFC 2136 updates.";
+      };
       port = lib.mkOption {
         type = lib.types.port;
         default = 53;
+        description = "Port of dns.host.";
       };
       keyName = lib.mkOption {
         type = lib.types.str;
         default = "stalwart-dns";
+        description = "Name of the HMAC-SHA256 TSIG key that signs the updates.";
       };
-      keyFile = lib.mkOption { type = lib.types.str; };
+      keyFile = lib.mkOption {
+        type = lib.types.str;
+        description = "Runtime file with the base64 TSIG secret.";
+      };
       requestTimeoutMs = lib.mkOption {
         type = lib.types.ints.positive;
-        default = 5000;
+        default = 60000;
+        description = ''
+          How long Stalwart waits for an update's answer. Knot runs one event
+          per zone at a time, so an update can wait seconds behind a NOTIFY or
+          signing; Stalwart replaces an RRset by a delete and a separate add,
+          and gives up on a publication whose request times out.
+        '';
       };
       ttlMs = lib.mkOption {
         type = lib.types.ints.positive;
         default = 300000;
+        description = "TTL of the published records.";
       };
       pollingIntervalMs = lib.mkOption {
         type = lib.types.ints.positive;
         default = 10000;
+        description = "Interval of Stalwart's propagation checks, e.g. for DNS-01 challenges.";
       };
       propagationTimeoutMs = lib.mkOption {
         type = lib.types.ints.positive;
         default = 300000;
+        description = "How long Stalwart waits for a record to propagate.";
       };
     };
     resolver = resolverSupport.options;
@@ -323,6 +340,7 @@ in
     };
     accounts = accountSupport.options;
     reportingIngress = (import ./stalwart-report-throttles.nix { inherit lib cfg; }).option;
+    publishedRecords = (import ./stalwart-dns-records.nix { inherit lib; }).option cfg;
     generatedConfigPaths = lib.mkOption {
       type = lib.types.attrsOf lib.types.package;
       readOnly = true;

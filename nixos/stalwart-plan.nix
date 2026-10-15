@@ -21,23 +21,26 @@ let
     useTls = true;
   };
 
+  dnsRecords = import ./stalwart-dns-records.nix { inherit lib; };
+  inherit (dnsRecords) publishRecords;
+  domainRef = name: "domain-${slug name}";
+
   dnsManagement = {
     "@type" = "Automatic";
     dnsServerId = dnsRef;
     origin = null;
-    publishRecords = {
-      dkim = true;
-      spf = true;
-      mx = true;
-      dmarc = true;
-      srv = true;
-      mtaSts = true;
-      tlsRpt = true;
-      caa = true;
-      autoConfig = true;
-      autoConfigLegacy = true;
-      autoDiscover = true;
-    };
+    inherit publishRecords;
+  };
+
+  # Stalwart publishes a domain's records only when it first turns to
+  # automatic DNS management, and never retries a failed publication. Ask
+  # it to publish them again on every start; the running server's task
+  # manager runs the task (the plan's recovery-mode server does not).
+  dnsTask = name: {
+    "@type" = "DnsManagement";
+    domainId = "#${domainRef name}";
+    updateRecords = publishRecords;
+    onSuccessRenewCertificate = false;
   };
 
   dkimManagement = {
@@ -83,7 +86,7 @@ let
       aliases = { };
       inherit certificateManagement;
       subAddressing."@type" = "Enabled";
-      reportAddressUri = "mailto:postmaster";
+      inherit (dnsRecords) reportAddressUri;
     }
     // lib.optionalAttrs (identityDirectory != null) {
       directoryId = "#${directoryId identityDirectory.domain}";
@@ -106,6 +109,14 @@ let
     // lib.optionalAttrs (directory.claimGroups != null) { inherit (directory) claimGroups; };
 
   operations = [
+    {
+      # The bootstrap sets the hostname only in a fresh store. It is the EHLO
+      # name and the MX, SPF, CNAME and SRV target, so a changed hostname
+      # must reach existing state too.
+      "@type" = "update";
+      object = "SystemSettings";
+      value.defaultHostname = cfg.hostname;
+    }
     {
       "@type" = "upsert";
       object = "Application";
@@ -182,7 +193,14 @@ let
       object = "Domain";
       matchOn = [ "name" ];
       value = lib.listToAttrs (
-        map (name: lib.nameValuePair "domain-${slug name}" (domain name)) (cfg.domains)
+        map (name: lib.nameValuePair (domainRef name) (domain name)) (cfg.domains)
+      );
+    }
+    {
+      "@type" = "create";
+      object = "Task";
+      value = lib.listToAttrs (
+        map (name: lib.nameValuePair "task-dns-${slug name}" (dnsTask name)) cfg.domains
       );
     }
     {
