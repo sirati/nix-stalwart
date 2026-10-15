@@ -8,7 +8,10 @@ let
     domains = [ "realm.test" "alias.test" "other.test" "local.test" ];
     webPort = 8081;
     acme.enable = false;
-    dns.object."@type" = "Manual";
+    dns = {
+      object."@type" = "Manual";
+      publishCaa = true;
+    };
     resolver.object."@type" = "System";
   };
   directory = domain: issuerUrl: aliases: {
@@ -31,6 +34,7 @@ let
   rejectsPlan = cfg: !(builtins.tryEval (mkPlan cfg).drvPath).success;
   plan = mkPlan configured;
   empty = mkPlan (base // { identityDirectories = { }; });
+  withoutCaa = mkPlan (configured // { dns = base.dns // { publishCaa = false; }; });
 in
 assert accepts configured;
 assert rejectsPlan (invalid (second // { issuerUrl = first.issuerUrl; }));
@@ -65,5 +69,8 @@ pkgs.runCommand "stalwart-canonical-identity-plan" { nativeBuildInputs = [ pkgs.
       .scope == {"name": "https"} and .value == {} and .matchOn == ["name"])
   ' ${plan}
   jq --slurp --exit-status 'map(select(.object == "Directory")) | length == 0' ${empty}
+  caa='map(select(.object == "Domain"))[0].value | map(.dnsManagement.publishRecords.caa) | unique'
+  jq --slurp --exit-status "($caa) == [true]" ${plan}
+  jq --slurp --exit-status "($caa) == [false]" ${withoutCaa}
   touch $out
 ''

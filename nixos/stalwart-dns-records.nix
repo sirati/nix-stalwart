@@ -20,8 +20,9 @@
 let
   inherit (lib) types mkOption;
 
-  # dnsManagement.publishRecords of every mail domain.
-  publishRecords = {
+  # dnsManagement.publishRecords of every mail domain; the apex CAA only
+  # when dns.publishCaa allows it.
+  publishRecords = cfg: {
     dkim = true;
     spf = true;
     mx = true;
@@ -29,13 +30,12 @@ let
     srv = true;
     mtaSts = true;
     tlsRpt = true;
-    caa = true;
+    caa = cfg.dns.publishCaa;
     autoConfig = true;
     autoConfigLegacy = true;
     autoDiscover = true;
   };
-  recordTypes = lib.attrNames (lib.filterAttrs (_: enabled: enabled) publishRecords);
-  publishes = type: publishRecords.${type} or false;
+  recordTypes = cfg: lib.attrNames (lib.filterAttrs (_: enabled: enabled) (publishRecords cfg));
 
   reportAddressUri = "mailto:postmaster";
 
@@ -152,11 +152,12 @@ let
       prefix = owner: value: { name = "${owner}."; inherit value; match = "prefix"; };
       cname = label: { name = "${label}.${d}."; type = "CNAME"; values = [ target ]; };
       srv = service: port: { name = "_${service}._tcp.${d}."; type = "SRV"; values = [ "0 1 ${toString port} ${target}" ]; };
+      publishes = type: (publishRecords cfg).${type} or false;
       when = type: lib.optionals (publishes type);
     in
     {
       origin = "${d}.";
-      inherit recordTypes;
+      recordTypes = recordTypes cfg;
       txt =
         when "spf" ([ (exact d "v=spf1 mx -all") ] ++ lib.optional (lib.hasSuffix ".${d}" host) (exact host "v=spf1 a -all"))
         ++ when "dmarc" [ (exact "_dmarc.${d}" "v=DMARC1; p=reject; rua=${report}") ]

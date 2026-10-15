@@ -294,6 +294,11 @@ in
         type = lib.types.str;
         description = "Runtime file with the base64 TSIG secret.";
       };
+      publishCaa = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Whether Stalwart publishes an apex CAA record bound to its own ACME account. That record governs every name in the zone, so disable it when another ACME client also issues certificates there.";
+      };
       requestTimeoutMs = lib.mkOption {
         type = lib.types.ints.positive;
         default = 60000;

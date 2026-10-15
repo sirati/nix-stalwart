@@ -14,7 +14,10 @@ let
     domains = [ "realm.test" ];
     webPort = 8081;
     acme.enable = false;
-    dns.object."@type" = "Manual";
+    dns = {
+      object."@type" = "Manual";
+      publishCaa = true;
+    };
     resolver.object."@type" = "System";
     identityDirectories = { };
     reportingIngress = [ (policy 25 [ "10.0.0.2" ]) ];

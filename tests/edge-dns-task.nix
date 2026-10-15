@@ -25,6 +25,7 @@ let
       pollingInterval = 10000;
       propagationTimeout = 300000;
     };
+    dns.publishCaa = false;
     resolver.object."@type" = "System";
     identityDirectories = { };
     reportingIngress = [ ];
@@ -35,11 +36,22 @@ let
     stalwartWebui = pkgs.writeTextDir "webui.zip" "fixture";
   };
   records = import ../nixos/stalwart-dns-records.nix { inherit lib; };
+  # The records the health checks expect follow dns.publishCaa: with it off
+  # no CAA and no _validation-persist is expected.
+  withAcme = publishCaa: records.forDomain (main // {
+    acme = { enable = true; directory = "https://acme-v02.api.letsencrypt.org/directory"; };
+    dns = main.dns // { inherit publishCaa; };
+  }) "realm.test";
+  validationPersist = r: lib.any (t: lib.hasPrefix "_validation-persist." t.name) r.txt;
   expected = pkgs.writeText "edge-dns-expected.json" (builtins.toJSON {
     domains = map lib.toLower main.domains;
-    updateRecords = records.publishRecords;
+    # Stalwart reads publishRecords back as the set of enabled types.
+    updateRecords = lib.filterAttrs (_: enabled: enabled) (records.publishRecords main);
   });
 in
+assert (withAcme true).caa != [ ] && validationPersist (withAcme true);
+assert (withAcme false).caa == [ ] && !(validationPersist (withAcme false));
+assert !(lib.elem "caa" (withAcme false).recordTypes);
 pkgs.runCommand "edge-dns-task" {
   nativeBuildInputs = [ pkgs.python3 (pkgs.callPackage ../stalwart-cli.nix { }) ];
   SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";

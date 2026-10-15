@@ -22,7 +22,7 @@ let
   };
 
   dnsRecords = import ./stalwart-dns-records.nix { inherit lib; };
-  inherit (dnsRecords) publishRecords;
+  publishRecords = dnsRecords.publishRecords cfg;
   domainRef = name: "domain-${slug name}";
 
   dnsManagement = {
