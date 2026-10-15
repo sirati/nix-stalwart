@@ -85,7 +85,7 @@ let
     inherit lib pkgs;
     stalwartWebui = pkgs.stalwart_0_16.webui;
     cfg = cfg // {
-      dns.object = dnsObject;
+      dns = cfg.dns // { object = dnsObject; };
       resolver.object = resolverSupport.object;
     };
   };
