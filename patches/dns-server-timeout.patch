@@ -1,0 +1,19 @@
+--- a/crates/common/src/network/dns/update.rs
++++ b/crates/common/src/network/dns/update.rs
+@@ -45,7 +45,7 @@
+                 propagation_delay: server.propagation_delay.map(|d| d.into_inner()),
+                 ttl: server.ttl.into_inner(),
+                 core,
+-                updater: dns_update::DnsUpdater::new_rfc2136_tsig(
++                updater: dns_update::DnsUpdater::new_rfc2136_tsig_with_timeout(
+                     match server.protocol {
+                         enums::IpProtocol::Tcp => DnsAddress::Tcp(SocketAddr::new(
+                             server.host.into_inner(),
+@@ -72,6 +72,7 @@
+                         enums::TsigAlgorithm::HmacSha512 => TsigAlgorithm::HmacSha512,
+                         enums::TsigAlgorithm::HmacSha512256 => TsigAlgorithm::HmacSha512_256,
+                     },
++                    server.timeout.into_inner(),
+                 )
+                 .map_err(|err| format!("Failed to build DNS updater: {}", err))?,
+             }),

@@ -73,9 +73,22 @@ stalwart_0_16.overrideAttrs (old: {
   patches = (old.patches or [ ]) ++ map (name: builtins.path {
     path = ./patches + "/${name}";
     inherit name;
-  }) [ "domain-directory-routing.patch" "oidc-authentication-tests.patch" ];
+  }) [ "domain-directory-routing.patch" "oidc-authentication-tests.patch" "dns-server-timeout.patch" ];
 
+  # A TSIG DNS server's timeout never reached dns-update, which waited
+  # hickory's fixed 5 s for each answer. Knot answers an update only after
+  # the zone's running event, such as a NOTIFY round to a dead secondary,
+  # so updates timed out between Stalwart's delete and its add.
   postPatch = (old.postPatch or "") + ''
+    dnsUpdate=("$cargoDepsCopy"/*/dns-update-0.5.9)
+    if [ "''${#dnsUpdate[@]}" != 1 ] || [ ! -d "''${dnsUpdate[0]}" ]; then
+      echo "expected one vendored dns-update 0.5.9, found: ''${dnsUpdate[*]}" >&2
+      exit 1
+    fi
+    patch -d "''${dnsUpdate[0]}" -p1 < ${builtins.path {
+      path = ./patches/dns-update-tsig-timeout.patch;
+      name = "dns-update-tsig-timeout.patch";
+    }}
     substituteInPlace crates/common/src/manager/defaults.rs \
       --replace-fail ${lib.escapeShellArg upstreamWebui} \
       ${lib.escapeShellArg packagedWebui} \
