@@ -26,6 +26,7 @@ let
     dns = { origin = "realm.test"; object."@type" = "Manual"; };
     resolver.object."@type" = "System";
     deliveryRelay = { address = "10.0.255.2"; port = 25; };
+    spamFilterRules = "${pkgs.stalwart_0_16.spam-filter}/spam-filter-rules.json.gz";
     reportingIngress = [ (policy 2525 [ "192.0.2.2" ]) ];
   };
   mainPlan = import ../nixos/stalwart-plan.nix {
