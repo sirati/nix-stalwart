@@ -90,10 +90,14 @@ with tempfile.TemporaryDirectory(prefix='edge-dns-') as directory:
             full = [task for task in new if task['updateRecords'] == expected['updateRecords']
                     and task['onSuccessRenewCertificate'] is False]
             # Each start queues one task per domain with all its records. The
-            # first also has Stalwart's own tasks for domains turning automatic.
-            assert sorted(domains[task['domainId']] for task in full) == sorted(expected['domains']), (start, new)
+            # first also has Stalwart's own tasks for domains turning
+            # automatic, which carry all records or all but DKIM.
+            full_domains = sorted(domains[task['domainId']] for task in full)
             if start == 2:
+                assert full_domains == sorted(expected['domains']), (start, new)
                 assert len(new) == len(full), new
+            else:
+                assert sorted(set(full_domains)) == sorted(expected['domains']), (start, new)
             before = {task['id'] for task in current}
             # And a DkimManagement task per domain, which activates keys a
             # failed publication left Pending. The first start also has
