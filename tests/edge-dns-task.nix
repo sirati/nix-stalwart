@@ -1,8 +1,9 @@
 { pkgs }:
 # The edge plan, applied by the actual CLI to an actual Stalwart, schedules
-# a DnsManagement task for every mail domain on every apply (each start),
-# with that domain's publishRecords: Stalwart republishes after a lost or
-# failed publication without a fresh store.
+# a DnsManagement task with the domain's publishRecords and a DkimManagement
+# task for every mail domain on every apply (each start): Stalwart republishes
+# after a lost or failed publication, and activates the keys it left Pending,
+# without a fresh store.
 let
   inherit (pkgs) lib;
   main = {

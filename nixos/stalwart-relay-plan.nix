@@ -96,6 +96,19 @@ let
       value.domain-relay = domain;
     }
     {
+      # A DKIM key whose first publication failed stays Pending and never
+      # signs; only this task activates it once its record is published, and
+      # Stalwart runs it only when a domain turns to automatic DKIM, then
+      # hours apart. Run it on every start, so the start that publishes the
+      # records also activates the keys.
+      "@type" = "create";
+      object = "Task";
+      value.task-relay-dkim = {
+        "@type" = "DkimManagement";
+        domainId = "#domain-relay";
+      };
+    }
+    {
       # Stalwart publishes records only when a domain first turns to automatic
       # DNS management, and a failed publication is never retried. Ask it to
       # publish them again on every start.

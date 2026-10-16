@@ -49,9 +49,9 @@ with tempfile.TemporaryDirectory(prefix='edge-dns-') as directory:
         assert name == method, result
         return result
 
-    def tasks():
+    def tasks(kind='DnsManagement'):
         listed = call('x:Task/get', {'ids': None})['list']
-        return [task for task in listed if task.get('@type') == 'DnsManagement']
+        return [task for task in listed if task.get('@type') == kind]
 
     try:
         deadline = time.monotonic() + 30
@@ -76,6 +76,7 @@ with tempfile.TemporaryDirectory(prefix='edge-dns-') as directory:
             'defaultHostname': 'old.realm.test', 'defaultDomainId': created['created']['d']['id']}}})
         assert not settings.get('notUpdated'), settings
         before = set()
+        dkim_before = set()
         for start in (1, 2):
             result = subprocess.run(['stalwart-cli', '--url', url, '--user', 'schema-fixture',
                                      '--password', 'edge-dns-test-only', 'apply', '--file', str(stage)],
@@ -94,6 +95,16 @@ with tempfile.TemporaryDirectory(prefix='edge-dns-') as directory:
             if start == 2:
                 assert len(new) == len(full), new
             before = {task['id'] for task in current}
+            # And a DkimManagement task per domain, which activates keys a
+            # failed publication left Pending. The first start also has
+            # Stalwart's own for domains turning automatic.
+            dkim = tasks('DkimManagement')
+            dkim_new = sorted(domains[task['domainId']] for task in dkim if task['id'] not in dkim_before)
+            if start == 2:
+                assert dkim_new == sorted(expected['domains']), (start, dkim_new)
+            else:
+                assert sorted(set(dkim_new)) == sorted(expected['domains']), (start, dkim_new)
+            dkim_before = {task['id'] for task in dkim}
         settings = call('x:SystemSettings/get', {'ids': ['singleton']})['list'][0]
         assert settings['defaultHostname'] == 'mail.realm.test', settings
         print('Actual Stalwart: every apply of the edge plan queues a DnsManagement task per domain.')

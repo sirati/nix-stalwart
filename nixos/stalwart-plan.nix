@@ -42,6 +42,13 @@ let
     updateRecords = publishRecords;
     onSuccessRenewCertificate = false;
   };
+  # A DKIM key whose first publication failed stays Pending and never signs;
+  # only this task activates it, and Stalwart runs it only when a domain
+  # turns to automatic DKIM, then hours apart. Run it on every start too.
+  dkimTask = name: {
+    "@type" = "DkimManagement";
+    domainId = "#${domainRef name}";
+  };
 
   dkimManagement = {
     "@type" = "Automatic";
@@ -200,7 +207,10 @@ let
       "@type" = "create";
       object = "Task";
       value = lib.listToAttrs (
-        map (name: lib.nameValuePair "task-dns-${slug name}" (dnsTask name)) cfg.domains
+        lib.concatMap (name: [
+          (lib.nameValuePair "task-dkim-${slug name}" (dkimTask name))
+          (lib.nameValuePair "task-dns-${slug name}" (dnsTask name))
+        ]) cfg.domains
       );
     }
     {
