@@ -1,5 +1,18 @@
 # SPDX-License-Identifier: MIT
 { lib, pkgs, cfg, stalwart, accounts }:
+let
+  # The bootstrap's admin@<defaultDomain>, whose password nobody keeps, is an
+  # orphan once the administrator has its own domain. The runner removes it
+  # unless a declared account is that address, and keeps the address
+  # delivering to the administrator unless a declared alias already does.
+  bootstrapAddress = lib.toLower "admin@${cfg.defaultDomain}";
+  address = localPart: domain: lib.toLower "${localPart}@${domain}";
+  declared = map (entry: address entry.account.localPart entry.account.domain) accounts;
+  aliased = lib.concatMap (entry: map (alias: address alias.localPart alias.domain) entry.account.aliases) accounts;
+  bootstrapAdministrator =
+    if lib.toLower cfg.administratorDomain == lib.toLower cfg.defaultDomain || lib.elem bootstrapAddress declared then null
+    else { alias = !(lib.elem bootstrapAddress aliased); };
+in
 {
   package = import ../runner-rs/package.nix { inherit pkgs; };
   configuration = pkgs.writeText "stalwart-startup.json" (builtins.toJSON {
@@ -24,5 +37,6 @@
       planFile = "/config/accounts/${entry.id}.json";
       passwordFile = if entry.account.passwordFile != null then entry.containerSecret else null;
     }) accounts;
+    inherit bootstrapAdministrator;
   });
 }

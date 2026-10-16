@@ -40,6 +40,17 @@ struct Config {
     administrator_file: String,
     administrator_username: Option<String>,
     accounts: Vec<Account>,
+    #[serde(default)]
+    bootstrap_administrator: Option<BootstrapAdministrator>,
+}
+/// Stalwart's bootstrap creates `admin@<defaultDomain>` with a password
+/// nobody keeps. With the administrator under its own domain, that account
+/// is an orphan: the runner removes it and, unless a declared account holds
+/// the address, keeps the address delivering to the administrator.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BootstrapAdministrator {
+    alias: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,14 +269,7 @@ fn plan(
     let mut result = fs::read_to_string("/config/plan.ndjson").map_err(|e| e.to_string())?;
     result.push('\n');
     if c.administrator_domain != c.default_domain {
-        result.push_str(
-            &json!({"@type":"upsert","object":"Domain","matchOn":["name"],"value":{
-                format!("domain-{}", c.administrator_domain.replace('.',"-")): {
-                    "name":c.administrator_domain,"isEnabled":true,"directoryId":null
-                }
-            }})
-            .to_string(),
-        );
+        result.push_str(&administrator_domain(c).to_string());
         result.push('\n');
     }
     for account in &c.accounts {
@@ -288,10 +292,61 @@ fn plan(
         result.push_str(&operation.to_string());
         result.push('\n');
     }
-    let operation = json!({"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"administrator":{"@type":"User","name":"admin","domainId":format!("#domain-{}", c.administrator_domain.replace('.',"-")),"credentials":{"0":{"@type":"Password","secret":admin.1}},"roles":{"@type":"Admin"}}}});
+    let operation = json!({"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"administrator":{"@type":"User","name":"admin","domainId":format!("#{}", domain_ref(&c.administrator_domain)),"credentials":{"0":{"@type":"Password","secret":admin.1}},"roles":{"@type":"Admin"}}}});
     result.push_str(&operation.to_string());
     result.push('\n');
+    if c.bootstrap_administrator.is_some() {
+        for operation in retire_bootstrap_administrator(&c.default_domain) {
+            result.push_str(&operation.to_string());
+            result.push('\n');
+        }
+    }
     Ok(result.into_bytes())
+}
+fn domain_ref(name: &str) -> String {
+    format!("domain-{}", name.replace('.', "-"))
+}
+fn administrator_domain(c: &Config) -> Value {
+    json!({"@type":"upsert","object":"Domain","matchOn":["name"],"value":{
+        domain_ref(&c.administrator_domain): {
+            "name":c.administrator_domain,"isEnabled":true,"directoryId":null
+        }
+    }})
+}
+// The default domain as a plan reference, without changing its settings.
+const BOOTSTRAP_DOMAIN: &str = "bootstrap-default-domain";
+fn bootstrap_domain(default_domain: &str) -> Value {
+    json!({"@type":"upsert","object":"Domain","matchOn":["name"],"value":{
+        BOOTSTRAP_DOMAIN: {"name":default_domain}
+    }})
+}
+/// Removes the bootstrap's `admin@<defaultDomain>`: a reconcile whose scope
+/// is that exact user and that keeps none of it. Without the account it
+/// removes nothing.
+fn retire_bootstrap_administrator(default_domain: &str) -> [Value; 2] {
+    [
+        bootstrap_domain(default_domain),
+        json!({"@type":"reconcile","object":"Account","matchOn":["name","domainId"],
+            "scope":{"@type":"User","name":"admin","domainId":format!("#{BOOTSTRAP_DOMAIN}")},
+            "value":{}}),
+    ]
+}
+/// The administrator also receives `admin@<defaultDomain>`. A plan of its
+/// own: the reconcile frees the address only at the end of its apply.
+fn bootstrap_alias(c: &Config) -> Vec<u8> {
+    let operations = [
+        bootstrap_domain(&c.default_domain),
+        administrator_domain(c),
+        json!({"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"administrator":{
+            "@type":"User","name":"admin","domainId":format!("#{}", domain_ref(&c.administrator_domain)),
+            "aliases":{"0":{"enabled":true,"name":"admin","domainId":format!("#{BOOTSTRAP_DOMAIN}")}}
+        }}}),
+    ];
+    operations
+        .iter()
+        .map(|operation| format!("{operation}\n"))
+        .collect::<String>()
+        .into_bytes()
 }
 fn run() -> Result<(), String> {
     unsafe {
@@ -312,6 +367,9 @@ fn run() -> Result<(), String> {
         return Err("invalid Stalwart startup mode".into());
     }
     let c: Config = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    if c.bootstrap_administrator.is_some() && c.administrator_domain == c.default_domain {
+        return Err("the bootstrap administrator is the administrator in its own domain".into());
+    }
     let auth = credential(&c.bootstrap_file, c.bootstrap_username.as_deref())?;
     let admin = credential(&c.administrator_file, c.administrator_username.as_deref())?;
     let mut secrets = vec![
@@ -368,6 +426,15 @@ fn run() -> Result<(), String> {
         Some(&input),
         &secrets,
     )?;
+    if c.bootstrap_administrator.as_ref().is_some_and(|b| b.alias) {
+        cli(
+            &c,
+            &auth,
+            &["apply", "--stdin", "--quiet"],
+            Some(&bootstrap_alias(&c)),
+            &secrets,
+        )?;
+    }
     drop(server);
     match fs::remove_file("/var/lib/stalwart/initial-admin.txt") {
         Ok(()) => {}
@@ -441,6 +508,50 @@ mod tests {
         for invalid in ["admin", ":password", "admin:"] {
             assert!(recovery_credential(invalid).is_err());
         }
+    }
+    fn config(alias: bool) -> Config {
+        serde_json::from_value(json!({
+            "server": "s", "cli": "c", "curl": "u", "pgIsReady": "p", "databaseHost": "h",
+            "databasePort": 5432, "databaseName": "n", "databaseUser": "u", "recoveryPort": 1,
+            "defaultDomain": "example.test", "administratorDomain": "mail.example.test",
+            "bootstrapFile": "b", "bootstrapUsername": "admin", "administratorFile": "a",
+            "administratorUsername": "admin@mail.example.test", "accounts": [],
+            "bootstrapAdministrator": {"alias": alias},
+        }))
+        .unwrap()
+    }
+    #[test]
+    fn the_bootstrap_administrator_is_removed_by_its_exact_name_type_and_domain() {
+        let [domain, reconcile] = retire_bootstrap_administrator("example.test");
+        assert_eq!(
+            domain,
+            json!({"@type":"upsert","object":"Domain","matchOn":["name"],
+                "value":{"bootstrap-default-domain":{"name":"example.test"}}})
+        );
+        assert_eq!(reconcile["@type"], "reconcile");
+        assert_eq!(reconcile["object"], "Account");
+        assert_eq!(
+            reconcile["scope"],
+            json!({"@type":"User","name":"admin","domainId":"#bootstrap-default-domain"})
+        );
+        // Nothing is kept in that scope, and nothing outside it is touched.
+        assert_eq!(reconcile["value"], json!({}));
+    }
+    #[test]
+    fn the_administrator_receives_the_bootstrap_address() {
+        let plan = String::from_utf8(bootstrap_alias(&config(true))).unwrap();
+        let operations: Vec<Value> = plan.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(operations.len(), 3);
+        assert_eq!(operations[1]["value"]["domain-mail-example-test"]["name"], "mail.example.test");
+        let administrator = &operations[2]["value"]["administrator"];
+        assert_eq!(administrator["name"], "admin");
+        assert_eq!(administrator["domainId"], "#domain-mail-example-test");
+        assert_eq!(
+            administrator["aliases"],
+            json!({"0":{"enabled":true,"name":"admin","domainId":"#bootstrap-default-domain"}})
+        );
+        // No credentials: the main plan owns the administrator's password.
+        assert!(administrator.get("credentials").is_none());
     }
     #[test]
     fn diagnostic_redacts_plain_and_json_escaped_credentials() {
