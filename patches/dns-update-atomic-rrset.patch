@@ -1,0 +1,44 @@
+--- a/src/providers/rfc2136.rs
++++ b/src/providers/rfc2136.rs
+@@ -21,10 +21,10 @@
+ use hickory_net::runtime::TokioRuntimeProvider;
+ use hickory_net::tcp::TcpClientStream;
+ use hickory_net::udp::UdpClientStream;
+-use hickory_net::xfer::DnsMultiplexer;
++use hickory_net::xfer::{DnsHandle, DnsMultiplexer, FirstAnswer};
+ use hickory_proto::ProtoError;
+ use hickory_proto::dnssec::DnsSecError;
+-use hickory_proto::op::ResponseCode;
++use hickory_proto::op::{DnsRequest, ResponseCode, UpdateMessage, update_message};
+ use hickory_proto::rr::rdata::caa::KeyValue;
+ use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
+ use hickory_proto::rr::rdata::tsig::TsigAlgorithm;
+@@ -127,20 +127,17 @@
+         let zone = Name::from_str_relaxed(origin.into_fqdn().as_ref())?;
+         let rtype: RecordType = record_type.into();
+ 
+-        let mut client = self.connect().await?;
++        let client = self.connect().await?;
+ 
++        // The delete and the new records in one UPDATE, which the server
++        // applies as one: as two, the name has no such RRset between them,
++        // and a lookup there gets NXDOMAIN or an empty answer.
+         let delete = Record::update0(owner.clone(), 0, rtype);
+-        let result = client.delete_rrset(delete, zone.clone()).await?;
+-        if result.response_code != ResponseCode::NoError {
+-            return Err(Error::Response(result.response_code.to_string()));
++        let mut message = update_message::delete_rrset(delete, zone, client.is_using_edns());
++        if !records.is_empty() {
++            message.add_updates(build_rrset(owner, rtype, ttl, records)?);
+         }
+-
+-        if records.is_empty() {
+-            return Ok(());
+-        }
+-
+-        let rrset = build_rrset(owner, rtype, ttl, records)?;
+-        let result = client.append(rrset, zone, false).await?;
++        let result = client.send(DnsRequest::from(message)).first_answer().await?;
+         if result.response_code != ResponseCode::NoError {
+             return Err(Error::Response(result.response_code.to_string()));
+         }

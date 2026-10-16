@@ -12,6 +12,7 @@ let
     "flake.nix"
     "package.nix"
     "patches/dns-server-timeout.patch"
+    "patches/dns-update-atomic-rrset.patch"
     "patches/dns-update-tsig-timeout.patch"
     "patches/domain-directory-routing.patch"
     "patches/oidc-authentication-tests.patch"

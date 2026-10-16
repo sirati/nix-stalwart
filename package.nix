@@ -89,6 +89,13 @@ stalwart_0_16.overrideAttrs (old: {
       path = ./patches/dns-update-tsig-timeout.patch;
       name = "dns-update-tsig-timeout.patch";
     }}
+    # dns-update replaced an RRset with two updates, a delete and an add, so
+    # every start's republication left each name without its records in
+    # between: a receiver checking DKIM, SPF or DMARC then failed the mail.
+    patch -d "''${dnsUpdate[0]}" -p1 < ${builtins.path {
+      path = ./patches/dns-update-atomic-rrset.patch;
+      name = "dns-update-atomic-rrset.patch";
+    }}
     substituteInPlace crates/common/src/manager/defaults.rs \
       --replace-fail ${lib.escapeShellArg upstreamWebui} \
       ${lib.escapeShellArg packagedWebui} \
