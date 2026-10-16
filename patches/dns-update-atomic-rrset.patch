@@ -13,24 +13,18 @@
  use hickory_proto::rr::rdata::caa::KeyValue;
  use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
  use hickory_proto::rr::rdata::tsig::TsigAlgorithm;
-@@ -127,20 +127,17 @@
+@@ -127,20 +127,26 @@
          let zone = Name::from_str_relaxed(origin.into_fqdn().as_ref())?;
          let rtype: RecordType = record_type.into();
  
 -        let mut client = self.connect().await?;
 +        let client = self.connect().await?;
  
-+        // The delete and the new records in one UPDATE, which the server
-+        // applies as one: as two, the name has no such RRset between them,
-+        // and a lookup there gets NXDOMAIN or an empty answer.
-         let delete = Record::update0(owner.clone(), 0, rtype);
+-        let delete = Record::update0(owner.clone(), 0, rtype);
 -        let result = client.delete_rrset(delete, zone.clone()).await?;
 -        if result.response_code != ResponseCode::NoError {
 -            return Err(Error::Response(result.response_code.to_string()));
-+        let mut message = update_message::delete_rrset(delete, zone, client.is_using_edns());
-+        if !records.is_empty() {
-+            message.add_updates(build_rrset(owner, rtype, ttl, records)?);
-         }
+-        }
 -
 -        if records.is_empty() {
 -            return Ok(());
@@ -38,6 +32,23 @@
 -
 -        let rrset = build_rrset(owner, rtype, ttl, records)?;
 -        let result = client.append(rrset, zone, false).await?;
++        // The delete and the new records in one UPDATE, which the server
++        // applies as one: as two, the name has no such RRset between them,
++        // and a lookup there gets NXDOMAIN or an empty answer. A CNAME is
++        // only added: an added CNAME replaces the name's CNAME (RFC 2136
++        // 3.4.2.2), while after a delete in the same UPDATE the name still
++        // holds its signatures, and a CNAME beside other data is ignored.
++        let use_edns = client.is_using_edns();
++        let message = if rtype == RecordType::CNAME && !records.is_empty() {
++            update_message::append(build_rrset(owner, rtype, ttl, records)?, zone, false, use_edns)
++        } else {
++            let delete = Record::update0(owner.clone(), 0, rtype);
++            let mut message = update_message::delete_rrset(delete, zone, use_edns);
++            if !records.is_empty() {
++                message.add_updates(build_rrset(owner, rtype, ttl, records)?);
++            }
++            message
++        };
 +        let result = client.send(DnsRequest::from(message)).first_answer().await?;
          if result.response_code != ResponseCode::NoError {
              return Err(Error::Response(result.response_code.to_string()));
