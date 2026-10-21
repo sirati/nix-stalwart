@@ -87,6 +87,10 @@
           reporting-throttles = import ./tests/reporting-throttles.nix { inherit pkgs; };
           edge-dns-task = import ./tests/edge-dns-task.nix { inherit pkgs; };
           readiness-config = import ./tests/readiness-config.nix { inherit pkgs; };
+          rocksdb-durability = import ./tests/rocksdb-durability.nix {
+            inherit pkgs;
+            stalwart = self.packages.${system}.stalwart-domain-directories;
+          };
           relay-network = import ./tests/relay-network.nix {
             inherit pkgs nixpkgs;
             relayModule = self.nixosModules.relay;

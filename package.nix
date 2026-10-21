@@ -73,7 +73,10 @@ stalwart_0_16.overrideAttrs (old: {
   patches = (old.patches or [ ]) ++ map (name: builtins.path {
     path = ./patches + "/${name}";
     inherit name;
-  }) [ "domain-directory-routing.patch" "oidc-authentication-tests.patch" "dns-server-timeout.patch" ];
+  }) [ "domain-directory-routing.patch" "oidc-authentication-tests.patch" "dns-server-timeout.patch"
+    # RocksDB commits did not sync their write-ahead log: the relay's queue
+    # acknowledged a message that a power cut seconds later lost.
+    "rocksdb-synced-commits.patch" ];
 
   # A TSIG DNS server's timeout never reached dns-update, which waited
   # hickory's fixed 5 s for each answer. Knot answers an update only after

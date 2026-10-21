@@ -1,0 +1,17 @@
+--- a/crates/store/src/backend/rocksdb/write.rs
++++ b/crates/store/src/backend/rocksdb/write.rs
+@@ -142,9 +142,11 @@
+         let mut result = AssignedIds::default();
+         let has_changes = !self.batch.changes.is_empty();
+ 
+-        let txn = self
+-            .db
+-            .transaction_opt(&WriteOptions::default(), &self.txn_opts);
++        // Acknowledged means durable: SMTP accepts a message with this
++        // commit, and a power cut afterwards must not lose it.
++        let mut write_options = WriteOptions::default();
++        write_options.set_sync(true);
++        let txn = self.db.transaction_opt(&write_options, &self.txn_opts);
+ 
+         if has_changes {
+             let cf = self.db.cf_handle("n").unwrap();
